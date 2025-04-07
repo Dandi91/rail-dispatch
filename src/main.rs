@@ -23,6 +23,7 @@ fn main() {
 
     let level = Level::load_from_file("resources/level.toml");
     let mut state = GameState::new(&level);
+    state.engine.start();
 
     while !rl.window_should_close() {
         let mut d = rl.begin_drawing(&thread);
@@ -32,4 +33,6 @@ fn main() {
         d.draw_text(&state.engine.sim_duration_formatted(), 700, 3, 20, Color::RAYWHITE);
         d.draw_text(&state.engine.time_scale_formatted(), 800, 3, 20, Color::RAYWHITE);
     }
+
+    state.engine.stop();
 }
