@@ -5,7 +5,6 @@ use crate::level::Level;
 use crate::train::Train;
 use raylib::consts::KeyboardKey;
 use raylib::drawing::RaylibDrawHandle;
-use std::sync::Arc;
 
 enum State {
     Board,
@@ -15,7 +14,6 @@ enum State {
 pub struct GameState<'a> {
     state: State,
     level: &'a Level,
-    trains: Vec<Arc<Train>>,
     board: DisplayBoard<'a>,
     // speed table
     pub engine: Engine,
@@ -26,24 +24,20 @@ impl GameState<'_> {
         GameState {
             state: State::Board,
             level,
-            trains: Vec::new(),
             board: DisplayBoard::new(&level),
             engine: Engine::new(),
         }
     }
 
     fn debug_spawn_train(&mut self) {
-        let train = Arc::new(Train::new());
-        self.trains.push(train.clone());
-        self.engine.add_sim_object(train.clone());
+        let train = Train::new();
         println!("Train {} registered", train.number);
+        self.engine.add_train(train);
     }
 
     fn debug_despawn_train(&mut self) {
-        if self.trains.len() > 0 {
-            let train = self.trains.swap_remove(0);
+        if let Some(train) = self.engine.remove_last_train() {
             println!("Train {} deregistered", train.number);
-            self.engine.remove_sim_object(train);
         }
     }
 

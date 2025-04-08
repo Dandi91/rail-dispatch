@@ -6,6 +6,8 @@ mod game_state;
 mod lamp;
 mod level;
 mod train;
+mod clock;
+mod event;
 
 use crate::common::Drawable;
 use crate::game_state::GameState;

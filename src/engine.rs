@@ -1,44 +1,17 @@
 use crate::common::SimObject;
-use chrono::{Local, NaiveDateTime, TimeDelta};
-use std::ops::{Add, Sub};
+use crate::train::Train;
+use std::ops::Sub;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread::{sleep, spawn, JoinHandle};
 use std::time::{Duration, Instant};
-
-pub struct Clock {
-    start_point: NaiveDateTime,
-    elapsed_seconds: f64,
-}
-
-impl SimObject for Clock {
-    fn tick(&mut self, dt: f64) {
-        self.elapsed_seconds += dt;
-    }
-}
-
-impl Clock {
-    pub fn new(start_point: Option<NaiveDateTime>) -> Self {
-        Clock {
-            start_point: start_point.unwrap_or(Local::now().naive_local()),
-            elapsed_seconds: 0.0,
-        }
-    }
-
-    pub fn current(&self) -> NaiveDateTime {
-        let delta = TimeDelta::microseconds((self.elapsed_seconds * 1_000_000.0) as i64);
-        self.start_point.add(delta)
-    }
-
-    pub fn datetime_to_elapsed_seconds(&self, dt: NaiveDateTime) -> f64 {
-        (dt - self.start_point).num_microseconds().unwrap() as f64 / 1_000_000.0
-    }
-}
+use crate::clock::Clock;
 
 const MULTIPLIERS: [f64; 7] = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0];
 
 struct EngineState {
-    sim_objects: Vec<Arc<dyn SimObject>>,
+    clock: Clock,
+    trains: Vec<Train>,
     unit_dt: f64,
     time_scale: f64,
     sim_duration: f64,
@@ -62,10 +35,10 @@ impl EngineState {
                 let mut state = state.write().unwrap();
                 let sim_dt = actual_dt.as_secs_f64() * state.time_scale;
                 state.sim_duration = sim_duration.as_secs_f64();
-                for arc in state.sim_objects.iter_mut() {
-                    if let Some(sim_object) = Arc::get_mut(arc) {
-                        sim_object.tick(sim_dt);
-                    }
+
+                state.clock.tick(sim_dt);
+                for train in &mut state.trains {
+                    train.tick(sim_dt);
                 }
             }
         }
@@ -73,7 +46,6 @@ impl EngineState {
 }
 
 pub struct Engine {
-    clock: Arc<Clock>,
     multiplier: usize,
     state: Arc<RwLock<EngineState>>,
     done: Arc<AtomicBool>,
@@ -83,12 +55,11 @@ pub struct Engine {
 impl Engine {
     pub fn new() -> Self {
         let default_multiplier = 2; // 1.0
-        let clock = Arc::new(Clock::new(None));
         Engine {
-            clock: clock.clone(),
             multiplier: default_multiplier,
             state: Arc::new(RwLock::new(EngineState {
-                sim_objects: vec![clock.clone()],
+                clock: Clock::new(None),
+                trains: Vec::new(),
                 unit_dt: 0.01,
                 time_scale: MULTIPLIERS[default_multiplier],
                 sim_duration: 0.0,
@@ -112,15 +83,12 @@ impl Engine {
         }
     }
 
-    pub fn add_sim_object(&mut self, sim_object: Arc<dyn SimObject>) {
-        self.state.write().unwrap().sim_objects.push(sim_object);
+    pub fn add_train(&mut self, train: Train) {
+        self.state.write().unwrap().trains.push(train);
     }
 
-    pub fn remove_sim_object(&mut self, sim_object: Arc<dyn SimObject>) {
-        let sim_objects = &mut self.state.write().unwrap().sim_objects;
-        if let Some(index) = sim_objects.iter().position(|x| Arc::ptr_eq(x, &sim_object)) {
-            sim_objects.swap_remove(index);
-        }
+    pub fn remove_last_train(&mut self) -> Option<Train> {
+        self.state.write().unwrap().trains.pop()
     }
 
     pub fn time_scale_formatted(&self) -> String {
@@ -141,7 +109,7 @@ impl Engine {
         if self.thread.is_none() {
             let state = self.state.clone();
             let done = self.done.clone();
-            self.thread = Some(spawn(move || { EngineState::simulate(state, done) } ));
+            self.thread = Some(spawn(move || EngineState::simulate(state, done)));
         }
     }
 
