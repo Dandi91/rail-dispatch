@@ -70,7 +70,7 @@ impl Clock {
             None => period,
         };
 
-        let idx = self.periodic_events.partition_point(|&x| x.left < left);
+        let idx = self.periodic_events.partition_point(|x| x.left < left);
         self.periodic_events.insert(idx, PeriodicEvent::new(left, period, event));
     }
 
@@ -79,7 +79,6 @@ impl Clock {
         for (idx, event) in self.periodic_events.iter_mut().enumerate() {
             event.left -= dt;
             if event.left <= 0.0 {
-                event.notify(self);
                 num_fired = Some(idx);
             }
         }
@@ -89,12 +88,13 @@ impl Clock {
                 let mut fired = self
                     .periodic_events
                     .pop_front()
-                    .expect("There are at least num_fired items");
+                    .expect("There are at least num_fired items in the dequeue");
+                fired.notify(self);
                 fired.reset();
 
                 let idx = self
                     .periodic_events
-                    .partition_point(|&x| x.left < fired.left);
+                    .partition_point(|x| x.left < fired.left);
                 self.periodic_events.insert(idx, fired);
             }
         }

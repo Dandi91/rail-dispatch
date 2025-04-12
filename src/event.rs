@@ -6,7 +6,7 @@ pub struct Event<T> {
 impl<T> Event<T> {
     pub fn new(callback: fn(&T)) -> Self {
         Self {
-            callbacks: !vec![callback],
+            callbacks: vec![callback],
         }
     }
 
