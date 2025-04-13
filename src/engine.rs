@@ -148,7 +148,7 @@ impl Engine {
 
     pub fn sim_duration_formatted(&self) -> String {
         let sim_duration = self.state.read().unwrap().sim_duration;
-        format!("{} ms", (sim_duration * 1000.0) as u32)
+        format!("{:5} us", (sim_duration * 1_000_000.0) as u32)
     }
 
     pub fn start(&mut self) {
