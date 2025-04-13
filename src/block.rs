@@ -1,5 +1,5 @@
 use crate::common::Direction;
-use crate::level::BlockData;
+use crate::level::{BlockData, Level};
 use itertools::Itertools;
 
 pub type BlockId = usize;
@@ -11,19 +11,33 @@ pub struct BlockMap {
 }
 
 impl BlockMap {
-    fn get_block_by_id(&self, id: &BlockId) -> Option<&Block> {
-        let index = match self.chunks.binary_search_by(|x| x.0.cmp(id)) {
-            Ok(x) => self.chunks[x].1,
+    fn get_block_index(&self, id: &BlockId) -> Option<usize> {
+        match self.chunks.binary_search_by(|x| x.0.cmp(id)) {
+            Ok(x) => Some(self.chunks[x].1),
             Err(x) => {
                 if x > 0 {
                     let chunk_start = self.chunks[x - 1];
-                    chunk_start.1 + (id - chunk_start.0)
+                    Some(chunk_start.1 + (id - chunk_start.0))
                 } else {
-                    return None;
+                    None
                 }
             }
-        };
+        }
+    }
+
+    fn get_block_by_id(&self, id: &BlockId) -> Option<&Block> {
+        let index = self.get_block_index(id)?;
         let candidate = self.blocks.get(index)?;
+        if candidate.id == *id {
+            Some(candidate)
+        } else {
+            None
+        }
+    }
+
+    fn get_block_by_id_mut(&mut self, id: &BlockId) -> Option<&mut Block> {
+        let index = self.get_block_index(id)?;
+        let candidate = self.blocks.get_mut(index)?;
         if candidate.id == *id {
             Some(candidate)
         } else {
@@ -64,7 +78,18 @@ impl BlockMap {
         Some(self.get_block_by_id(&next).expect("block not found"))
     }
 
-    pub fn load_from_iterable<'a, I: IntoIterator<Item = &'a BlockData>>(block_data: I) -> Self {
+    pub fn from_level(level: &Level) -> Self {
+        let mut map = Self::from_iterable(&level.blocks);
+        for conn in &level.connections {
+            let start = map.get_block_by_id_mut(&conn.start).expect("block not found");
+            start.next = Some(conn.end);
+            let end = map.get_block_by_id_mut(&conn.end).expect("block not found");
+            end.prev = Some(conn.start);
+        }
+        map
+    }
+
+    pub fn from_iterable<'a, I: IntoIterator<Item = &'a BlockData>>(block_data: I) -> Self {
         let mut blocks: Vec<Block> = block_data.into_iter().map_into().collect();
         blocks.sort_by(|a, b| a.id.cmp(&b.id));
 
@@ -104,12 +129,20 @@ impl From<&BlockData> for Block {
     }
 }
 
+#[derive(PartialEq, Clone)]
 pub struct TrackPoint {
     pub block_id: BlockId,
     pub offset_m: f64,
 }
 
 impl TrackPoint {
+    /// Step `length_m` meters in the `direction` along the track
+    pub fn step_by(&self, length_m: f64, direction: Direction, map: &BlockMap) -> TrackPoint {
+        self.walk(length_m, direction, map)
+            .last()
+            .expect("expected non-zero length")
+    }
+
     pub fn walk<'a>(
         &self,
         length_m: f64,
@@ -189,7 +222,7 @@ mod tests {
             id: x,
             ..Default::default()
         });
-        let block_map = BlockMap::load_from_iterable(&block_data);
+        let block_map = BlockMap::from_iterable(&block_data);
         assert_eq!(block_map.blocks.len(), 10);
         assert_eq!(block_map.chunks.len(), 5);
         assert_eq!(block_map.chunks[0], (1, 0));

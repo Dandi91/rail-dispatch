@@ -28,7 +28,3 @@ impl Direction {
 pub trait Drawable {
     fn draw(&self, d: &mut RaylibDrawHandle);
 }
-
-pub trait SimObject: Send + Sync {
-    fn tick(&mut self, dt: f64);
-}

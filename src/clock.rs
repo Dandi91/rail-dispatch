@@ -1,4 +1,3 @@
-use crate::common::SimObject;
 use crate::event::Event;
 use chrono::{Local, NaiveDateTime, TimeDelta};
 use std::collections::VecDeque;
@@ -34,12 +33,6 @@ pub struct Clock {
     periodic_events: VecDeque<PeriodicEvent>,
 }
 
-impl SimObject for Clock {
-    fn tick(&mut self, dt: f64) {
-        self.elapsed_seconds += dt;
-    }
-}
-
 impl Clock {
     pub fn new(start_point: Option<NaiveDateTime>) -> Self {
         Clock {
@@ -47,6 +40,10 @@ impl Clock {
             elapsed_seconds: 0.0,
             periodic_events: VecDeque::new(),
         }
+    }
+
+    pub fn tick(&mut self, dt: f64) {
+        self.elapsed_seconds += dt;
     }
 
     pub fn current(&self) -> NaiveDateTime {

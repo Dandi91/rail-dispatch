@@ -1,13 +1,15 @@
 use crate::block::{BlockMap, TrackPoint};
 use crate::clock::Clock;
-use crate::common::{Direction, SimObject};
-use crate::train::{Train, TrainPriority};
+use crate::common::Direction;
+use crate::level::Level;
+use crate::train::{RailVehicle, Train, TrainPriority};
+use std::iter::zip;
 use std::ops::Sub;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
-use std::thread::{sleep, spawn, JoinHandle};
+use std::thread;
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use crate::level::Level;
 
 const MULTIPLIERS: [f64; 7] = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0];
 
@@ -30,7 +32,7 @@ impl EngineState {
         while !done.load(Ordering::Relaxed) {
             let sim_duration = Instant::now().sub(last_wake);
             let dt = state.read().unwrap().dt();
-            sleep(dt.saturating_sub(sim_duration));
+            thread::sleep(dt.saturating_sub(sim_duration));
             let this_wake = Instant::now();
             let actual_dt = this_wake - last_wake;
             last_wake = this_wake;
@@ -38,10 +40,16 @@ impl EngineState {
                 let mut state = state.write().unwrap();
                 let sim_dt = actual_dt.as_secs_f64() * state.time_scale;
                 state.sim_duration = sim_duration.as_secs_f64();
-
                 state.clock.tick(sim_dt);
-                for train in &mut state.trains {
-                    train.tick(sim_dt);
+
+                let mut updates = Vec::with_capacity(state.trains.len());
+                for train in &state.trains {
+                    updates.push(train.calculate_update(sim_dt, &state.block_map));
+                }
+                for (train, update) in zip(&mut state.trains, updates) {
+                    if update.is_some() {
+                        train.apply_update(update.unwrap());
+                    }
                 }
             }
         }
@@ -55,6 +63,10 @@ impl EngineState {
         speed_mps: f64,
         spawn_point: TrackPoint,
     ) -> &Train {
+        let mut cars: Vec<RailVehicle> = Vec::with_capacity(100);
+        cars.extend([RailVehicle::new_locomotive(138_000.0, 18.15, 2250.0, 375.0); 2]);
+        cars.extend([RailVehicle::new_car(30_000.0, 15.0, 70_000.0); 75]);
+
         self.trains.push(Train::spawn_at(
             priority,
             number,
@@ -62,8 +74,7 @@ impl EngineState {
             direction,
             spawn_point,
             &self.block_map,
-            Vec::new(),
-            Vec::new(),
+            cars,
         ));
         self.trains.last().expect("we just put train in there")
     }
@@ -83,7 +94,7 @@ impl Engine {
             multiplier: default_multiplier,
             state: Arc::new(RwLock::new(EngineState {
                 clock: Clock::new(None),
-                block_map: BlockMap::load_from_iterable(&level.blocks),
+                block_map: BlockMap::from_level(&level),
                 trains: Vec::new(),
                 unit_dt: 0.01,
                 time_scale: MULTIPLIERS[default_multiplier],
@@ -111,7 +122,7 @@ impl Engine {
     pub fn add_train(&mut self) -> String {
         let mut state = self.state.write().unwrap();
         let train_number = rand::random_range(1000..=9999).to_string();
-        let spawn_point = state.block_map.get_track_point(1, 300.0);
+        let spawn_point = state.block_map.get_track_point(2, 600.0);
         state.spawn_train(
             TrainPriority::Cargo,
             train_number.clone(),
@@ -144,7 +155,12 @@ impl Engine {
         if self.thread.is_none() {
             let state = self.state.clone();
             let done = self.done.clone();
-            self.thread = Some(spawn(move || EngineState::simulate(state, done)));
+            self.thread = Some(
+                thread::Builder::new()
+                    .name("SimThread".into())
+                    .spawn(move || EngineState::simulate(state, done))
+                    .unwrap(),
+            );
         }
     }
 
