@@ -1,9 +1,9 @@
 use crate::common::Drawable;
 use crate::consts::TRACK_WIDTH;
+use crate::lamp::Lamp;
 use crate::level::Level;
 use raylib::prelude::*;
 use std::collections::HashMap;
-use crate::lamp::Lamp;
 
 const BOARD_BACKGROUND: Color = Color::new(0x64, 0xA0, 0x64, 0xFF);
 const FLASH_INTERVAL: f64 = 0.65;

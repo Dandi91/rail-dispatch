@@ -2,7 +2,6 @@ use crate::common::Drawable;
 use crate::display_board::DisplayBoard;
 use crate::engine::Engine;
 use crate::level::Level;
-use crate::train::Train;
 use raylib::consts::KeyboardKey;
 use raylib::drawing::RaylibDrawHandle;
 
@@ -25,14 +24,13 @@ impl GameState<'_> {
             state: State::Board,
             level,
             board: DisplayBoard::new(&level),
-            engine: Engine::new(),
+            engine: Engine::new(level),
         }
     }
 
     fn debug_spawn_train(&mut self) {
-        let train = Train::new();
-        println!("Train {} registered", train.number);
-        self.engine.add_train(train);
+        let train_number = self.engine.add_train();
+        println!("Train {} registered", train_number);
     }
 
     fn debug_despawn_train(&mut self) {

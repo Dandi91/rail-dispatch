@@ -1,7 +1,8 @@
 use raylib::drawing::RaylibDrawHandle;
 use serde_repr::Deserialize_repr;
+use std::ops::Neg;
 
-#[derive(Deserialize_repr)]
+#[derive(Deserialize_repr, PartialEq, Copy, Clone)]
 #[repr(i8)]
 pub enum Direction {
     Even = 1,
@@ -9,10 +10,17 @@ pub enum Direction {
 }
 
 impl Direction {
-    pub fn reverse(self) -> Direction {
+    pub fn reverse(&self) -> Direction {
         match self {
             Direction::Even => Direction::Odd,
             Direction::Odd => Direction::Even,
+        }
+    }
+
+    pub fn apply_sign<T: Neg<Output = T>>(&self, value: T) -> T {
+        match self {
+            Direction::Even => value,
+            Direction::Odd => value.neg(),
         }
     }
 }
@@ -20,7 +28,6 @@ impl Direction {
 pub trait Drawable {
     fn draw(&self, d: &mut RaylibDrawHandle);
 }
-
 
 pub trait SimObject: Send + Sync {
     fn tick(&mut self, dt: f64);

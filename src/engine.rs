@@ -1,16 +1,19 @@
-use crate::common::SimObject;
-use crate::train::Train;
+use crate::block::{BlockMap, TrackPoint};
+use crate::clock::Clock;
+use crate::common::{Direction, SimObject};
+use crate::train::{Train, TrainPriority};
 use std::ops::Sub;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread::{sleep, spawn, JoinHandle};
 use std::time::{Duration, Instant};
-use crate::clock::Clock;
+use crate::level::Level;
 
 const MULTIPLIERS: [f64; 7] = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0];
 
 struct EngineState {
     clock: Clock,
+    block_map: BlockMap,
     trains: Vec<Train>,
     unit_dt: f64,
     time_scale: f64,
@@ -43,6 +46,27 @@ impl EngineState {
             }
         }
     }
+
+    pub fn spawn_train(
+        &mut self,
+        priority: TrainPriority,
+        number: String,
+        direction: Direction,
+        speed_mps: f64,
+        spawn_point: TrackPoint,
+    ) -> &Train {
+        self.trains.push(Train::spawn_at(
+            priority,
+            number,
+            speed_mps,
+            direction,
+            spawn_point,
+            &self.block_map,
+            Vec::new(),
+            Vec::new(),
+        ));
+        self.trains.last().expect("we just put train in there")
+    }
 }
 
 pub struct Engine {
@@ -53,12 +77,13 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn new() -> Self {
+    pub fn new(level: &Level) -> Self {
         let default_multiplier = 2; // 1.0
         Engine {
             multiplier: default_multiplier,
             state: Arc::new(RwLock::new(EngineState {
                 clock: Clock::new(None),
+                block_map: BlockMap::load_from_iterable(&level.blocks),
                 trains: Vec::new(),
                 unit_dt: 0.01,
                 time_scale: MULTIPLIERS[default_multiplier],
@@ -83,8 +108,18 @@ impl Engine {
         }
     }
 
-    pub fn add_train(&mut self, train: Train) {
-        self.state.write().unwrap().trains.push(train);
+    pub fn add_train(&mut self) -> String {
+        let mut state = self.state.write().unwrap();
+        let train_number = rand::random_range(1000..=9999).to_string();
+        let spawn_point = state.block_map.get_track_point(1, 300.0);
+        state.spawn_train(
+            TrainPriority::Cargo,
+            train_number.clone(),
+            Direction::Even,
+            0.0,
+            spawn_point,
+        );
+        train_number
     }
 
     pub fn remove_last_train(&mut self) -> Option<Train> {

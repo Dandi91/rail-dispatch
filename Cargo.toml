@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 chrono = "0.4.40"
+itertools = "0.14.0"
 rand = "0.9.0"
 raylib = "5.5.1"
 serde = { version = "1.0.219", features = ["derive"] }
