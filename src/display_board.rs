@@ -23,7 +23,7 @@ impl<'a> DisplayBoard<'a> {
 }
 
 impl Drawable for DisplayBoard<'_> {
-    fn draw(&self, d: &mut RaylibDrawHandle) {
+    fn draw(&mut self, d: &mut RaylibDrawHandle, _: &RaylibThread) {
         d.clear_background(BOARD_BACKGROUND);
         d.draw_rectangle(0, 50, 300, TRACK_WIDTH, Color::BLACK);
 

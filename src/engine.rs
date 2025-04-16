@@ -47,8 +47,8 @@ impl EngineState {
                     updates.push(train.calculate_update(sim_dt, &state.block_map));
                 }
                 for (train, update) in zip(&mut state.trains, updates) {
-                    if update.is_some() {
-                        train.apply_update(update.unwrap());
+                    if let Some(update) = update {
+                        train.apply_update(update);
                     }
                 }
             }

@@ -2,6 +2,8 @@ use crate::common::Drawable;
 use crate::display_board::DisplayBoard;
 use crate::engine::Engine;
 use crate::level::Level;
+use crate::speed_table::SpeedTable;
+use raylib::RaylibThread;
 use raylib::consts::KeyboardKey;
 use raylib::drawing::RaylibDrawHandle;
 
@@ -10,11 +12,13 @@ enum State {
     SpeedTable,
 }
 
+const DEFAULT_STATE: State = State::Board;
+
 pub struct GameState<'a> {
     state: State,
     level: &'a Level,
     board: DisplayBoard<'a>,
-    // speed table
+    speed_table: SpeedTable,
     pub engine: Engine,
 }
 
@@ -24,6 +28,7 @@ impl GameState<'_> {
             state: State::Board,
             level,
             board: DisplayBoard::new(&level),
+            speed_table: SpeedTable::new(),
             engine: Engine::new(level),
         }
     }
@@ -40,6 +45,13 @@ impl GameState<'_> {
     }
 
     pub fn process_input(&mut self, d: &RaylibDrawHandle) {
+        if d.is_key_pressed(KeyboardKey::KEY_S) {
+            self.state = match self.state {
+                State::SpeedTable => DEFAULT_STATE,
+                _ => State::SpeedTable,
+            }
+        }
+
         // sim speed control
         if d.is_key_pressed(KeyboardKey::KEY_UP) {
             self.engine.increase_simulation_speed();
@@ -59,10 +71,10 @@ impl GameState<'_> {
 }
 
 impl Drawable for GameState<'_> {
-    fn draw(&self, d: &mut RaylibDrawHandle) {
+    fn draw(&mut self, d: &mut RaylibDrawHandle, thread: &RaylibThread) {
         match self.state {
-            State::Board => self.board.draw(d),
-            State::SpeedTable => {}
+            State::Board => self.board.draw(d, thread),
+            State::SpeedTable => self.speed_table.draw(d, thread),
         }
     }
 }
