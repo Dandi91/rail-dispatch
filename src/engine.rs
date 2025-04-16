@@ -3,6 +3,7 @@ use crate::clock::Clock;
 use crate::common::Direction;
 use crate::level::Level;
 use crate::train::{RailVehicle, Train, TrainPriority};
+use atomic_float::AtomicF64;
 use std::iter::zip;
 use std::ops::Sub;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -12,34 +13,45 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 const MULTIPLIERS: [f64; 7] = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0];
+const UNIT_DT: f64 = 0.01;
 
-struct EngineState {
+struct SimulationState {
     clock: Clock,
     block_map: BlockMap,
     trains: Vec<Train>,
-    unit_dt: f64,
-    time_scale: f64,
-    sim_duration: f64,
 }
 
-impl EngineState {
-    fn dt(&self) -> Duration {
-        Duration::from_secs_f64(self.unit_dt / self.time_scale)
-    }
+struct ControlState {
+    done: AtomicBool,
+    time_scale: AtomicF64,
+    sim_duration: AtomicF64,
+}
 
-    pub fn simulate(state: Arc<RwLock<EngineState>>, done: Arc<AtomicBool>) {
+impl SimulationState {
+    pub fn simulate(state: Arc<RwLock<SimulationState>>, control: Arc<ControlState>) {
         let mut last_wake = Instant::now();
-        while !done.load(Ordering::Relaxed) {
+        while !control.done.load(Ordering::Relaxed) {
+            // compute simulation duration since last wake
             let sim_duration = Instant::now().sub(last_wake);
-            let dt = state.read().unwrap().dt();
+            let sim_duration_f64 = sim_duration.as_secs_f64();
+            control
+                .sim_duration
+                .store(sim_duration_f64, Ordering::Relaxed);
+
+            // compute necessary dt to sleep
+            let time_scale = control.time_scale.load(Ordering::Relaxed);
+            let dt = Duration::from_secs_f64(UNIT_DT / time_scale);
             thread::sleep(dt.saturating_sub(sim_duration));
+
+            // compute actual dt that passed
             let this_wake = Instant::now();
             let actual_dt = this_wake - last_wake;
+            let sim_dt = actual_dt.as_secs_f64() * time_scale;
             last_wake = this_wake;
+
+            // run simulation based on the actual dt
             {
                 let mut state = state.write().unwrap();
-                let sim_dt = actual_dt.as_secs_f64() * state.time_scale;
-                state.sim_duration = sim_duration.as_secs_f64();
                 state.clock.tick(sim_dt);
 
                 let mut updates = Vec::with_capacity(state.trains.len());
@@ -81,9 +93,9 @@ impl EngineState {
 }
 
 pub struct Engine {
-    multiplier: usize,
-    state: Arc<RwLock<EngineState>>,
-    done: Arc<AtomicBool>,
+    multiplier_index: usize,
+    control: Arc<ControlState>,
+    state: Arc<RwLock<SimulationState>>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -91,31 +103,34 @@ impl Engine {
     pub fn new(level: &Level) -> Self {
         let default_multiplier = 2; // 1.0
         Engine {
-            multiplier: default_multiplier,
-            state: Arc::new(RwLock::new(EngineState {
+            multiplier_index: default_multiplier,
+            control: Arc::new(ControlState {
+                done: AtomicBool::new(false),
+                time_scale: AtomicF64::new(MULTIPLIERS[default_multiplier]),
+                sim_duration: AtomicF64::default(),
+            }),
+            state: Arc::new(RwLock::new(SimulationState {
                 clock: Clock::new(None),
                 block_map: BlockMap::from_level(&level),
                 trains: Vec::new(),
-                unit_dt: 0.01,
-                time_scale: MULTIPLIERS[default_multiplier],
-                sim_duration: 0.0,
             })),
-            done: Arc::new(AtomicBool::new(false)),
             thread: None,
         }
     }
 
     pub fn increase_simulation_speed(&mut self) {
-        if self.multiplier < MULTIPLIERS.len() - 1 {
-            self.multiplier += 1;
-            self.state.write().unwrap().time_scale = MULTIPLIERS[self.multiplier];
+        if self.multiplier_index < MULTIPLIERS.len() - 1 {
+            self.multiplier_index += 1;
+            let multiplier = MULTIPLIERS[self.multiplier_index];
+            self.control.time_scale.store(multiplier, Ordering::Relaxed);
         }
     }
 
     pub fn decrease_simulation_speed(&mut self) {
-        if self.multiplier > 0 {
-            self.multiplier -= 1;
-            self.state.write().unwrap().time_scale = MULTIPLIERS[self.multiplier];
+        if self.multiplier_index > 0 {
+            self.multiplier_index -= 1;
+            let multiplier = MULTIPLIERS[self.multiplier_index];
+            self.control.time_scale.store(multiplier, Ordering::Relaxed);
         }
     }
 
@@ -138,7 +153,7 @@ impl Engine {
     }
 
     pub fn time_scale_formatted(&self) -> String {
-        let time_scale = self.state.read().unwrap().time_scale;
+        let time_scale = self.control.time_scale.load(Ordering::Relaxed);
         if time_scale >= 1.0 {
             format!("{}x", time_scale as u32)
         } else {
@@ -147,18 +162,18 @@ impl Engine {
     }
 
     pub fn sim_duration_formatted(&self) -> String {
-        let sim_duration = self.state.read().unwrap().sim_duration;
+        let sim_duration = self.control.sim_duration.load(Ordering::Relaxed);
         format!("{:5} us", (sim_duration * 1_000_000.0) as u32)
     }
 
     pub fn start(&mut self) {
         if self.thread.is_none() {
             let state = self.state.clone();
-            let done = self.done.clone();
+            let control = self.control.clone();
             self.thread = Some(
                 thread::Builder::new()
                     .name("SimThread".into())
-                    .spawn(move || EngineState::simulate(state, done))
+                    .spawn(move || SimulationState::simulate(state, control))
                     .unwrap(),
             );
         }
@@ -166,7 +181,7 @@ impl Engine {
 
     pub fn stop(&mut self) {
         if let Some(thread) = self.thread.take() {
-            self.done.store(true, Ordering::Relaxed);
+            self.control.done.store(true, Ordering::Relaxed);
             thread.join().unwrap();
         }
     }
