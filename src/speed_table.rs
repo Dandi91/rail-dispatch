@@ -1,13 +1,14 @@
 use crate::common::{Drawable, draw_text_centered};
 use raylib::prelude::*;
+use std::iter::zip;
 
 const PADDING: i32 = 60;
 const X_OFFSET: i32 = 20;
-const TRAIN_GRAPH_HEIGHT: i32 = 100;
+const TRAIN_GRID_HEIGHT: i32 = 100;
 const TIME_LABELS_HEIGHT: i32 = 20;
 const TRAIN_HEADER_HEIGHT: i32 = 20;
-const GRAPH_HEIGHT: i32 = TRAIN_GRAPH_HEIGHT + TIME_LABELS_HEIGHT;
-const TRAIN_CARD_HEIGHT: i32 = TRAIN_HEADER_HEIGHT + GRAPH_HEIGHT;
+const GRID_HEIGHT: i32 = TRAIN_GRID_HEIGHT + TIME_LABELS_HEIGHT;
+const TRAIN_CARD_HEIGHT: i32 = TRAIN_HEADER_HEIGHT + GRID_HEIGHT;
 
 const MAX_TRAINS_VISIBLE: i32 = 6;
 const WIDGET_WIDTH: i32 = 980;
@@ -15,8 +16,8 @@ const WIDGET_HEIGHT: i32 = MAX_TRAINS_VISIBLE * TRAIN_CARD_HEIGHT + PADDING;
 const WIDTH: i32 = WIDGET_WIDTH - PADDING + 1;
 
 pub struct SpeedTable {
-    graph_image: Image,
-    graph_texture: Option<Texture2D>,
+    grid_image: Image,
+    grid_texture: Option<Texture2D>,
     texture_needs_updating: bool,
 
     num_trains: i32,
@@ -31,9 +32,9 @@ pub struct SpeedTable {
 impl SpeedTable {
     pub fn new() -> Self {
         let height = 1; // initially no trains are registered, so keep it at minimum
-        SpeedTable {
-            graph_image: Image::gen_image_color(WIDTH, GRAPH_HEIGHT, Color::BLANK),
-            graph_texture: None,
+        let mut result = SpeedTable {
+            grid_image: Image::gen_image_color(WIDTH, GRID_HEIGHT, Color::BLANK),
+            grid_texture: None,
             texture_needs_updating: true,
             num_trains: 0,
             height,
@@ -41,6 +42,28 @@ impl SpeedTable {
             screen_texture: None,
             scroll: Vector2::default(),
             view: Rectangle::default(),
+        };
+        result.draw_speed_grid();
+        result
+    }
+
+    fn draw_speed_grid(&mut self) {
+        let line_color = Color::new(0x8D, 0x8F, 0x94, 0xFF);
+        let speed_labels = [None, Some("80"), Some("60"), Some("40"), Some("20"), None];
+        let label_offset = 4;
+        // horizontal lines
+        for (y, label) in zip((0..GRID_HEIGHT).step_by(20), speed_labels) {
+            self.grid_image
+                .draw_line(X_OFFSET, y, WIDTH, y, &line_color);
+            if let Some(label) = label {
+                self.grid_image
+                    .draw_text(label, 0, y - label_offset, 10, Color::BLACK);
+            }
+        }
+        // vertical lines
+        for x in (X_OFFSET..=WIDTH).step_by(60) {
+            self.grid_image
+                .draw_line(x, 0, x, TRAIN_GRID_HEIGHT, &line_color);
         }
     }
 
@@ -51,11 +74,10 @@ impl SpeedTable {
         draw_text_centered(d, "No trains", x, y, font_size, Color::BLACK);
     }
 
-    fn update_graph_texture(&mut self, d: &mut RaylibDrawHandle, thread: &RaylibThread) {
+    fn update_grid_texture(&mut self, d: &mut RaylibDrawHandle, thread: &RaylibThread) {
         if self.texture_needs_updating {
-            if self.graph_texture.is_none() {
-                let texture_result = d.load_texture_from_image(thread, &self.graph_image);
-                self.graph_texture = Some(texture_result.expect("Failed to load texture"));
+            if self.grid_texture.is_none() {
+                self.grid_texture = d.load_texture_from_image(thread, &self.grid_image).ok();
             }
             self.texture_needs_updating = false;
         }
@@ -72,12 +94,11 @@ impl Drawable for SpeedTable {
             return;
         }
 
-        self.update_graph_texture(d, thread);
+        self.update_grid_texture(d, thread);
         match self.screen_texture {
             Some(ref mut texture) => {
                 if texture.height != self.height {
-                    let texture_result = d.load_texture_from_image(thread, &self.screen_image);
-                    self.screen_texture = Some(texture_result.expect("Failed to load texture"));
+                    self.screen_texture = d.load_texture_from_image(thread, &self.screen_image).ok()
                 } else {
                     let data = unsafe {
                         std::slice::from_raw_parts(
@@ -89,8 +110,7 @@ impl Drawable for SpeedTable {
                 }
             }
             None => {
-                let texture_result = d.load_texture_from_image(thread, &self.screen_image);
-                self.screen_texture = Some(texture_result.expect("Failed to load texture"));
+                self.screen_texture = d.load_texture_from_image(thread, &self.screen_image).ok();
             }
         }
 
@@ -121,10 +141,11 @@ impl Drawable for SpeedTable {
                 let scroll_offset_x = half_padding + self.scroll.x as i32 - scroll_bar_width / 2;
                 let scroll_offset_y = half_padding + self.scroll.y as i32;
                 // draw speed grid for every train
+                let texture = self.grid_texture.as_ref().unwrap();
                 for idx in 0..self.num_trains {
                     let offset_y = idx * TRAIN_CARD_HEIGHT + TRAIN_HEADER_HEIGHT;
                     d.draw_texture(
-                        self.graph_texture.as_ref().unwrap(),
+                        texture,
                         scroll_offset_x,
                         offset_y + scroll_offset_y,
                         Color::WHITE,

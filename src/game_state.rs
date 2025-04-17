@@ -27,7 +27,7 @@ impl GameState<'_> {
         GameState {
             state: State::Board,
             level,
-            board: DisplayBoard::new(&level),
+            board: DisplayBoard::new(level),
             speed_table: SpeedTable::new(),
             engine: Engine::new(level),
         }
@@ -39,9 +39,7 @@ impl GameState<'_> {
     }
 
     fn debug_despawn_train(&mut self) {
-        if let Some(train) = self.engine.remove_last_train() {
-            println!("Train {} deregistered", train.number);
-        }
+        self.engine.remove_last_train();
     }
 
     pub fn process_input(&mut self, d: &RaylibDrawHandle) {

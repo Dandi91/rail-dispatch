@@ -115,8 +115,16 @@ pub struct TrainUpdateData {
     position: Option<(TrackPoint, TrackPoint)>,
 }
 
-pub struct Train {
+pub struct TrainSpawnState {
+    pub priority: TrainPriority,
     pub number: String,
+    pub speed_mps: f64,
+    pub direction: Direction,
+    pub spawn_point: TrackPoint,
+}
+
+pub struct Train {
+    number: String,
     priority: TrainPriority,
 
     controls: TrainControls,
@@ -136,31 +144,32 @@ pub struct Train {
 
 impl Train {
     pub fn spawn_at(
-        priority: TrainPriority,
-        number: String,
-        speed_mps: f64,
-        direction: Direction,
-        spawn_point: TrackPoint,
+        state: TrainSpawnState,
         block_map: &BlockMap,
         rail_vehicles: Vec<RailVehicle>,
     ) -> Self {
         let stats = get_train_stats(&rail_vehicles);
-        let mut trace: Vec<TrackPoint> = spawn_point
-            .walk(stats.length_m.max(1.0), direction.reverse(), block_map)
+        let mut trace: Vec<TrackPoint> = state
+            .spawn_point
+            .walk(
+                stats.length_m.max(1.0),
+                state.direction.reverse(),
+                block_map,
+            )
             .collect();
 
         Train {
-            priority,
-            number,
+            priority: state.priority,
+            number: state.number,
             controls: Default::default(),
-            speed_mps,
-            target_speed_mps: speed_mps,
+            speed_mps: state.speed_mps,
+            target_speed_mps: 30.0,
             acceleration_mps2: 0.0,
-            direction,
+            direction: state.direction,
             vehicles: rail_vehicles,
             stats,
             occupied_blocks: trace.iter().map(|x| x.block_id).collect(),
-            front_position: spawn_point,
+            front_position: state.spawn_point,
             back_position: trace.pop().unwrap(),
             target_speed_margin_mps: 0.0,
         }

@@ -1,3 +1,18 @@
+use crate::train::TrainSpawnState;
+
+pub enum Command {
+    TrainSpawn(Box<TrainSpawnState>),
+    TrainDespawn,
+    Shutdown,
+}
+
+pub enum SimulationUpdate {
+    Clock(f64),
+    TrainState,
+    BlockOccupation,
+}
+
+
 #[derive(Default)]
 pub struct Event<T> {
     callbacks: Vec<fn(&T)>,

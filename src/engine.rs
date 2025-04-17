@@ -1,42 +1,76 @@
 use crate::block::{BlockMap, TrackPoint};
 use crate::clock::Clock;
 use crate::common::Direction;
+use crate::event::{Command, SimulationUpdate};
 use crate::level::Level;
-use crate::train::{RailVehicle, Train, TrainPriority};
+use crate::train::{RailVehicle, Train, TrainPriority, TrainSpawnState};
 use atomic_float::AtomicF64;
 use std::iter::zip;
 use std::ops::Sub;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::atomic::Ordering;
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{mpsc, Arc};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 const MULTIPLIERS: [f64; 7] = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0];
+const DEFAULT_MULTIPLIER_INDEX: usize = 2;
 const UNIT_DT: f64 = 0.01;
 
 struct SimulationState {
+    sender: Sender<SimulationUpdate>,
+    receiver: Receiver<Command>,
     clock: Clock,
     block_map: BlockMap,
     trains: Vec<Train>,
 }
 
 struct ControlState {
-    done: AtomicBool,
     time_scale: AtomicF64,
     sim_duration: AtomicF64,
 }
 
 impl SimulationState {
-    pub fn simulate(state: Arc<RwLock<SimulationState>>, control: Arc<ControlState>) {
+    fn new(init: ThreadInitState) -> Self {
+        SimulationState {
+            sender: init.sender,
+            receiver: init.receiver,
+            clock: Clock::new(None),
+            block_map: init.block_map,
+            trains: Vec::new(),
+        }
+    }
+
+    fn consume_events(&mut self) -> bool {
+        match self.receiver.try_recv() {
+            Ok(event) => {
+                match event {
+                    Command::TrainSpawn(state) => self.spawn_train(*state),
+                    Command::TrainDespawn => self.despawn_last_train(),
+                    Command::Shutdown => return false,
+                }
+                true
+            }
+            Err(err) => match err {
+                mpsc::TryRecvError::Empty => true,
+                mpsc::TryRecvError::Disconnected => false,
+            },
+        }
+    }
+
+    fn despawn_last_train(&mut self) {
+        self.trains.pop();
+    }
+
+    fn simulate(&mut self, control: Arc<ControlState>) {
         let mut last_wake = Instant::now();
-        while !control.done.load(Ordering::Relaxed) {
+        while self.consume_events() {
             // compute simulation duration since last wake
             let sim_duration = Instant::now().sub(last_wake);
-            let sim_duration_f64 = sim_duration.as_secs_f64();
             control
                 .sim_duration
-                .store(sim_duration_f64, Ordering::Relaxed);
+                .store(sim_duration.as_secs_f64(), Ordering::Relaxed);
 
             // compute necessary dt to sleep
             let time_scale = control.time_scale.load(Ordering::Relaxed);
@@ -50,70 +84,62 @@ impl SimulationState {
             last_wake = this_wake;
 
             // run simulation based on the actual dt
-            {
-                let mut state = state.write().unwrap();
-                state.clock.tick(sim_dt);
-
-                let mut updates = Vec::with_capacity(state.trains.len());
-                for train in &state.trains {
-                    updates.push(train.calculate_update(sim_dt, &state.block_map));
-                }
-                for (train, update) in zip(&mut state.trains, updates) {
-                    if let Some(update) = update {
-                        train.apply_update(update);
-                    }
+            self.clock.tick(sim_dt);
+            let mut updates = Vec::with_capacity(self.trains.len());
+            for train in &self.trains {
+                updates.push(train.calculate_update(sim_dt, &self.block_map));
+            }
+            for (train, update) in zip(&mut self.trains, updates) {
+                if let Some(update) = update {
+                    train.apply_update(update);
                 }
             }
         }
+        println!("Shutting down simulation");
     }
 
-    pub fn spawn_train(
-        &mut self,
-        priority: TrainPriority,
-        number: String,
-        direction: Direction,
-        speed_mps: f64,
-        spawn_point: TrackPoint,
-    ) -> &Train {
+    pub fn spawn_train(&mut self, spawn_state: TrainSpawnState) {
         let mut cars: Vec<RailVehicle> = Vec::with_capacity(100);
         cars.extend([RailVehicle::new_locomotive(138_000.0, 18.15, 2250.0, 375.0); 2]);
         cars.extend([RailVehicle::new_car(30_000.0, 15.0, 70_000.0); 75]);
 
-        self.trains.push(Train::spawn_at(
-            priority,
-            number,
-            speed_mps,
-            direction,
-            spawn_point,
-            &self.block_map,
-            cars,
-        ));
-        self.trains.last().expect("we just put train in there")
+        let train = Train::spawn_at(spawn_state, &self.block_map, cars);
+        self.trains.push(train);
     }
+}
+
+struct ThreadInitState {
+    block_map: BlockMap,
+    sender: Sender<SimulationUpdate>,
+    receiver: Receiver<Command>,
 }
 
 pub struct Engine {
     multiplier_index: usize,
+    sender: Sender<Command>,
+    receiver: Receiver<SimulationUpdate>,
     control: Arc<ControlState>,
-    state: Arc<RwLock<SimulationState>>,
+    thread_init_state: Option<ThreadInitState>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl Engine {
     pub fn new(level: &Level) -> Self {
-        let default_multiplier = 2; // 1.0
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let (sim_tx, sim_rx) = mpsc::channel();
         Engine {
-            multiplier_index: default_multiplier,
+            multiplier_index: DEFAULT_MULTIPLIER_INDEX,
+            sender: cmd_tx,
+            receiver: sim_rx,
             control: Arc::new(ControlState {
-                done: AtomicBool::new(false),
-                time_scale: AtomicF64::new(MULTIPLIERS[default_multiplier]),
+                time_scale: AtomicF64::new(MULTIPLIERS[DEFAULT_MULTIPLIER_INDEX]),
                 sim_duration: AtomicF64::default(),
             }),
-            state: Arc::new(RwLock::new(SimulationState {
-                clock: Clock::new(None),
+            thread_init_state: Some(ThreadInitState {
                 block_map: BlockMap::from_level(&level),
-                trains: Vec::new(),
-            })),
+                receiver: cmd_rx,
+                sender: sim_tx,
+            }),
             thread: None,
         }
     }
@@ -135,21 +161,25 @@ impl Engine {
     }
 
     pub fn add_train(&mut self) -> String {
-        let mut state = self.state.write().unwrap();
+        let spawn_point = TrackPoint {
+            block_id: 2,
+            offset_m: 600.0,
+        };
         let train_number = rand::random_range(1000..=9999).to_string();
-        let spawn_point = state.block_map.get_track_point(2, 600.0);
-        state.spawn_train(
-            TrainPriority::Cargo,
-            train_number.clone(),
-            Direction::Even,
-            0.0,
+
+        let event = Command::TrainSpawn(Box::new(TrainSpawnState {
+            priority: TrainPriority::Cargo,
+            number: train_number.clone(),
+            direction: Direction::Even,
+            speed_mps: 0.0,
             spawn_point,
-        );
+        }));
+        self.sender.send(event).unwrap();
         train_number
     }
 
-    pub fn remove_last_train(&mut self) -> Option<Train> {
-        self.state.write().unwrap().trains.pop()
+    pub fn remove_last_train(&mut self) {
+        self.sender.send(Command::TrainDespawn).unwrap()
     }
 
     pub fn time_scale_formatted(&self) -> String {
@@ -168,12 +198,12 @@ impl Engine {
 
     pub fn start(&mut self) {
         if self.thread.is_none() {
-            let state = self.state.clone();
             let control = self.control.clone();
+            let init = self.thread_init_state.take().unwrap();
             self.thread = Some(
                 thread::Builder::new()
                     .name("SimThread".into())
-                    .spawn(move || SimulationState::simulate(state, control))
+                    .spawn(move || SimulationState::new(init).simulate(control))
                     .unwrap(),
             );
         }
@@ -181,7 +211,7 @@ impl Engine {
 
     pub fn stop(&mut self) {
         if let Some(thread) = self.thread.take() {
-            self.control.done.store(true, Ordering::Relaxed);
+            self.sender.send(Command::Shutdown).unwrap();
             thread.join().unwrap();
         }
     }
