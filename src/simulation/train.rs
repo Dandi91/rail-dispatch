@@ -147,7 +147,7 @@ impl Train {
             id,
             controls: Default::default(),
             speed_mps: state.speed_mps,
-            target_speed_mps: 20.0,
+            target_speed_mps: 0.0,
             acceleration_mps2: 0.0,
             direction: state.direction,
             vehicles: rail_vehicles,
@@ -157,6 +157,11 @@ impl Train {
             back_position: trace.pop().unwrap(),
             target_speed_margin_mps: 0.0,
         }
+    }
+
+    pub fn set_target_speed_kmh(&mut self, speed_kmh: f64) {
+        self.target_speed_margin_mps = rand::random::<f64>() * 0.5 + 0.35;
+        self.target_speed_mps = speed_kmh / 3.6
     }
 
     /// Simple throttle and brake controls based on difference between current and target speed.

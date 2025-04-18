@@ -112,7 +112,8 @@ impl SimulationState {
         cars.extend([RailVehicle::new_car(30_000.0, 15.0, 70_000.0); 75]);
 
         let direction = spawn_state.direction;
-        let train = Train::spawn_at(self.next_id, spawn_state, &self.block_map, cars);
+        let mut train = Train::spawn_at(self.next_id, spawn_state, &self.block_map, cars);
+        train.set_target_speed_kmh(80.0);
         self.trains.push(train);
 
         let number = rand::random_range(1000..=9999).to_string();
