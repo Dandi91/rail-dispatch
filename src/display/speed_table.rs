@@ -1,4 +1,4 @@
-use crate::common::{TrainID, draw_text_centered};
+use crate::common::{TrainId, draw_text_centered};
 use crate::display::train::TrainDisplayState;
 use crate::simulation::train::TrainStatusUpdate;
 use itertools::Itertools;
@@ -20,7 +20,7 @@ const WIDTH: i32 = WIDGET_WIDTH - PADDING + 1;
 
 #[derive(Default)]
 struct TrainSpeedEntry {
-    id: TrainID,
+    id: TrainId,
     number: String,
     next_block_m: f64,
     speed_mps: f64,
@@ -71,7 +71,7 @@ impl SpeedTable {
         self.screen_image.resize_canvas(WIDTH, self.height, 0, 0, Color::BLANK);
     }
 
-    pub fn unregister_train(&mut self, train_id: TrainID) {
+    pub fn unregister_train(&mut self, train_id: TrainId) {
         let entry = self.trains.iter().find_position(|t| t.id == train_id);
         if let Some((index, ..)) = entry {
             if index != self.trains.len() - 1 {

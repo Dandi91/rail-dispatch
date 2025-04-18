@@ -1,5 +1,5 @@
 use crate::clock::Clock;
-use crate::common::{Direction, TrainID};
+use crate::common::{Direction, TrainId};
 use crate::display::train::{TrainDisplayState, TrainKind};
 use crate::event::{Command, SimulationUpdate};
 use crate::level::Level;
@@ -19,7 +19,7 @@ const DEFAULT_MULTIPLIER_INDEX: usize = 2;
 const UNIT_DT: f64 = 0.01;
 
 struct SimulationState {
-    next_id: TrainID,
+    next_id: TrainId,
     time_scale: f64,
     sender: Sender<SimulationUpdate>,
     receiver: Receiver<Command>,
@@ -88,17 +88,14 @@ impl SimulationState {
             self.clock.tick(sim_dt);
             self.trains
                 .iter_mut()
-                .map(|train| train.update(sim_dt, &self.block_map))
-                .for_each(|update| {
-                    self.sender.send(SimulationUpdate::TrainState(update)).unwrap();
-                });
+                .for_each(|train| train.update(sim_dt, &self.block_map, &self.sender));
 
             self.send_update(SimulationUpdate::Clock(self.clock.elapsed_seconds));
         }
         println!("Shutting down simulation");
     }
 
-    fn despawn_train_by_id(&mut self, id: TrainID) {
+    fn despawn_train_by_id(&mut self, id: TrainId) {
         if let Some((pos, ..)) = self.trains.iter().find_position(|x| x.id == id) {
             self.trains.swap_remove(pos);
             self.send_update(SimulationUpdate::UnregisterTrain(id));
@@ -112,7 +109,7 @@ impl SimulationState {
         cars.extend([RailVehicle::new_car(30_000.0, 15.0, 70_000.0); 75]);
 
         let direction = spawn_state.direction;
-        let mut train = Train::spawn_at(self.next_id, spawn_state, &self.block_map, cars);
+        let mut train = Train::spawn_at(self.next_id, spawn_state, cars, &self.block_map, &self.sender);
         train.set_target_speed_kmh(80.0);
         self.trains.push(train);
 
@@ -198,7 +195,7 @@ impl Engine {
         self.send_command(event);
     }
 
-    pub fn despawn_train(&self, id: TrainID) {
+    pub fn despawn_train(&self, id: TrainId) {
         self.send_command(Command::TrainDespawn(id));
     }
 

@@ -17,25 +17,24 @@ enum UIState {
 
 const DEFAULT_UI_STATE: UIState = UIState::Board;
 
-pub struct GameState<'a> {
+pub struct GameState {
     // UI
     ui_state: UIState,
-    level: &'a Level,
-    board: DisplayBoard<'a>,
+    board: DisplayBoard,
     speed_table: SpeedTable,
     // Logic
     engine: Engine,
     trains: Vec<TrainDisplayState>,
 }
 
-impl GameState<'_> {
-    pub fn new(level: &Level) -> GameState {
+impl GameState {
+    pub fn new() -> GameState {
+        let level = Level::load_from_file("resources/level.toml");
         GameState {
             ui_state: UIState::Board,
-            level,
-            board: DisplayBoard::new(level),
+            engine: Engine::new(&level),
+            board: DisplayBoard::new(&level),
             speed_table: SpeedTable::new(),
-            engine: Engine::new(level),
             trains: Vec::new(),
         }
     }
@@ -70,7 +69,10 @@ impl GameState<'_> {
                     SimulationUpdate::TrainState(state) => {
                         self.speed_table.process_train_update(&state);
                     }
-                    SimulationUpdate::BlockOccupation => {}
+                    SimulationUpdate::BlockOccupation(block_id, state) => {
+                        println!("Processing block {} occupied({})", block_id, state);
+                        self.board.process_update(block_id, state);
+                    }
                     SimulationUpdate::Clock(elapsed_seconds) => {
                         self.speed_table.update(elapsed_seconds);
                     }

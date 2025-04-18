@@ -3,7 +3,7 @@ use raylib::drawing::{RaylibDraw, RaylibDrawHandle};
 use serde_repr::Deserialize_repr;
 use std::ops::Neg;
 
-pub type TrainID = usize;
+pub type TrainId = usize;
 
 #[derive(Deserialize_repr, PartialEq, Copy, Clone)]
 #[repr(i8)]

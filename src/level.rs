@@ -1,5 +1,5 @@
 use crate::common::Direction;
-use crate::lamp::Lamp;
+use crate::display::lamp::Lamp;
 use serde::Deserialize;
 use std::fs;
 use std::io::Read;
@@ -25,7 +25,7 @@ pub struct ConnectionData {
     pub end: usize,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct SignalData {
     pub id: usize,
     pub x: i32,

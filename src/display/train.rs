@@ -1,4 +1,4 @@
-use crate::common::{Direction, TrainID};
+use crate::common::{Direction, TrainId};
 
 pub enum TrainKind {
     Extra = 0,
@@ -8,7 +8,7 @@ pub enum TrainKind {
 }
 
 pub struct TrainDisplayState {
-    pub id: TrainID,
+    pub id: TrainId,
     pub number: String,
     pub kind: TrainKind,
     pub direction: Direction,

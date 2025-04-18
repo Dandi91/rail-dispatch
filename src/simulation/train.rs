@@ -1,6 +1,8 @@
-use crate::common::{Direction, TrainID};
+use crate::common::{Direction, TrainId};
+use crate::event::SimulationUpdate;
 use crate::simulation::block::{BlockId, BlockMap, TrackPoint};
 use std::collections::VecDeque;
+use std::sync::mpsc::Sender;
 
 #[derive(Default)]
 pub struct TrainControls {
@@ -105,7 +107,7 @@ pub struct TrainSpawnState {
 }
 
 pub struct TrainStatusUpdate {
-    pub id: TrainID,
+    pub id: TrainId,
     pub speed_mps: f64,
     pub target_speed_mps: f64,
     pub next_block_m: f64,
@@ -113,7 +115,7 @@ pub struct TrainStatusUpdate {
 }
 
 pub struct Train {
-    pub id: TrainID,
+    pub id: TrainId,
 
     controls: TrainControls,
     speed_mps: f64,
@@ -132,16 +134,21 @@ pub struct Train {
 
 impl Train {
     pub fn spawn_at(
-        id: TrainID,
+        id: TrainId,
         state: TrainSpawnState,
-        block_map: &BlockMap,
         rail_vehicles: Vec<RailVehicle>,
+        block_map: &BlockMap,
+        sender: &Sender<SimulationUpdate>,
     ) -> Self {
         let stats = get_train_stats(&rail_vehicles);
         let mut trace: Vec<TrackPoint> = state
             .spawn_point
             .walk(stats.length_m.max(1.0), state.direction.reverse(), block_map)
             .collect();
+        let occupied = trace.iter().map(|x| {
+            sender.send(SimulationUpdate::BlockOccupation(x.block_id, true)).unwrap();
+            x.block_id
+        }).collect();
 
         Train {
             id,
@@ -152,7 +159,7 @@ impl Train {
             direction: state.direction,
             vehicles: rail_vehicles,
             stats,
-            occupied_blocks: trace.iter().map(|x| x.block_id).collect(),
+            occupied_blocks: occupied,
             front_position: state.spawn_point,
             back_position: trace.pop().unwrap(),
             target_speed_margin_mps: 0.0,
@@ -194,15 +201,9 @@ impl Train {
         TrainControls::default()
     }
 
-    pub fn update(&mut self, dt: f64, map: &BlockMap) -> TrainStatusUpdate {
+    pub fn update(&mut self, dt: f64, map: &BlockMap, sender: &Sender<SimulationUpdate>) {
         if dt <= 0.0 {
-            return TrainStatusUpdate {
-                id: self.id,
-                speed_mps: self.speed_mps,
-                target_speed_mps: self.target_speed_mps,
-                next_block_m: 0.0,
-                control_percentage: self.controls.as_percentage(),
-            };
+            return;
         }
 
         // Calculate tractive effort and braking force
@@ -230,25 +231,30 @@ impl Train {
         let dx = self.speed_mps * dt + 0.5 * self.acceleration_mps2 * dt.powi(2);
         if dx > 0.0 {
             let new_front = self.front_position.step_by(dx, self.direction, map);
-            if self.front_position != new_front {
+            if self.front_position.block_id != new_front.block_id {
+                let update = SimulationUpdate::BlockOccupation(new_front.block_id, true);
+                sender.send(update).unwrap();
                 self.occupied_blocks.push_front(new_front.block_id);
             }
             let new_back = self
                 .front_position
                 .step_by(self.stats.length_m, self.direction.reverse(), map);
-            if self.back_position != new_back {
-                self.occupied_blocks.pop_back();
+            if self.back_position.block_id != new_back.block_id {
+                let freed = self.occupied_blocks.pop_back().unwrap();
+                let update = SimulationUpdate::BlockOccupation(freed, false);
+                sender.send(update).unwrap();
             }
             self.front_position = new_front;
             self.back_position = new_back;
         }
 
-        TrainStatusUpdate {
+        let update = SimulationUpdate::TrainState(TrainStatusUpdate {
             id: self.id,
             speed_mps: self.speed_mps,
             target_speed_mps: self.target_speed_mps,
             next_block_m: map.get_available_length(&self.front_position, self.direction),
             control_percentage: self.controls.as_percentage(),
-        }
+        });
+        sender.send(update).unwrap();
     }
 }
