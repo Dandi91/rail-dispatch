@@ -13,11 +13,7 @@ use crate::level::Level;
 use raylib::prelude::*;
 
 fn main() {
-    let (mut rl, thread) = init()
-        .size(1024, 960)
-        .title("Rail Dispatch")
-        .resizable()
-        .build();
+    let (mut rl, thread) = init().size(1024, 960).title("Rail Dispatch").resizable().build();
 
     rl.set_target_fps(60);
 

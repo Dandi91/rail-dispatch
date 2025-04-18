@@ -48,12 +48,7 @@ impl RailVehicle {
         }
     }
 
-    pub fn new_locomotive(
-        mass_kg: f64,
-        length_m: f64,
-        power_kw: f64,
-        max_tractive_effort_kn: f64,
-    ) -> RailVehicle {
+    pub fn new_locomotive(mass_kg: f64, length_m: f64, power_kw: f64, max_tractive_effort_kn: f64) -> RailVehicle {
         RailVehicle {
             vehicle_type: VehicleType::Locomotive,
             mass_kg,
@@ -145,11 +140,7 @@ impl Train {
         let stats = get_train_stats(&rail_vehicles);
         let mut trace: Vec<TrackPoint> = state
             .spawn_point
-            .walk(
-                stats.length_m.max(1.0),
-                state.direction.reverse(),
-                block_map,
-            )
+            .walk(stats.length_m.max(1.0), state.direction.reverse(), block_map)
             .collect();
 
         Train {
@@ -171,8 +162,7 @@ impl Train {
     /// Simple throttle and brake controls based on difference between current and target speed.
     /// Returns `TrainControls` with values between 0.0 and 1.0.
     fn calculate_controls(&self) -> TrainControls {
-        let speed_diff_mps =
-            (self.target_speed_mps - self.target_speed_margin_mps) - self.speed_mps;
+        let speed_diff_mps = (self.target_speed_mps - self.target_speed_margin_mps) - self.speed_mps;
         if self.speed_mps < 0.001 && self.target_speed_mps < 0.01 {
             return TrainControls {
                 throttle: 0.0,
@@ -238,9 +228,9 @@ impl Train {
             if self.front_position != new_front {
                 self.occupied_blocks.push_front(new_front.block_id);
             }
-            let new_back =
-                self.front_position
-                    .step_by(self.stats.length_m, self.direction.reverse(), map);
+            let new_back = self
+                .front_position
+                .step_by(self.stats.length_m, self.direction.reverse(), map);
             if self.back_position != new_back {
                 self.occupied_blocks.pop_back();
             }

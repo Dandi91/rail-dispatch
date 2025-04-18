@@ -90,9 +90,7 @@ impl SimulationState {
                 .iter_mut()
                 .map(|train| train.update(sim_dt, &self.block_map))
                 .for_each(|update| {
-                    self.sender
-                        .send(SimulationUpdate::TrainState(update))
-                        .unwrap();
+                    self.sender.send(SimulationUpdate::TrainState(update)).unwrap();
                 });
 
             self.send_update(SimulationUpdate::Clock(self.clock.elapsed_seconds));

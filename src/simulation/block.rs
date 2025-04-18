@@ -28,21 +28,13 @@ impl BlockMap {
     fn get_block_by_id(&self, id: &BlockId) -> Option<&Block> {
         let index = self.get_block_index(id)?;
         let candidate = self.blocks.get(index)?;
-        if candidate.id == *id {
-            Some(candidate)
-        } else {
-            None
-        }
+        if candidate.id == *id { Some(candidate) } else { None }
     }
 
     fn get_block_by_id_mut(&mut self, id: &BlockId) -> Option<&mut Block> {
         let index = self.get_block_index(id)?;
         let candidate = self.blocks.get_mut(index)?;
-        if candidate.id == *id {
-            Some(candidate)
-        } else {
-            None
-        }
+        if candidate.id == *id { Some(candidate) } else { None }
     }
 
     pub fn get_track_point(&self, block_id: BlockId, offset_m: f64) -> TrackPoint {
@@ -59,9 +51,7 @@ impl BlockMap {
     }
 
     pub fn get_available_length(&self, point: &TrackPoint, direction: Direction) -> f64 {
-        let block = self
-            .get_block_by_id(&point.block_id)
-            .expect("block not found");
+        let block = self.get_block_by_id(&point.block_id).expect("block not found");
         if direction == Direction::Even {
             block.length_m - point.offset_m
         } else {
@@ -81,9 +71,7 @@ impl BlockMap {
     pub fn from_level(level: &Level) -> Self {
         let mut map = Self::from_iterable(&level.blocks);
         for conn in &level.connections {
-            let start = map
-                .get_block_by_id_mut(&conn.start)
-                .expect("block not found");
+            let start = map.get_block_by_id_mut(&conn.start).expect("block not found");
             start.next = Some(conn.end);
             let end = map.get_block_by_id_mut(&conn.end).expect("block not found");
             end.prev = Some(conn.start);
@@ -145,12 +133,7 @@ impl TrackPoint {
             .expect("expected non-zero length")
     }
 
-    pub fn walk<'a>(
-        &self,
-        length_m: f64,
-        direction: Direction,
-        map: &'a BlockMap,
-    ) -> TrackWalker<'a> {
+    pub fn walk<'a>(&self, length_m: f64, direction: Direction, map: &'a BlockMap) -> TrackWalker<'a> {
         TrackWalker {
             block_map: map,
             current_block_id: self.block_id,
@@ -189,10 +172,7 @@ impl Iterator for TrackWalker<'_> {
         } else {
             self.length_m -= self.block_available_m;
             let result_block_id = self.current_block_id;
-            if let Some(next_block) = self
-                .block_map
-                .get_next(self.current_block_id, self.direction)
-            {
+            if let Some(next_block) = self.block_map.get_next(self.current_block_id, self.direction) {
                 self.current_block_id = next_block.id;
                 self.block_available_m = next_block.length_m;
                 self.offset_m = match self.direction {
@@ -200,10 +180,7 @@ impl Iterator for TrackWalker<'_> {
                     Direction::Odd => next_block.length_m,
                 }
             } else {
-                panic!(
-                    "No further block length available. Still need {} m",
-                    self.length_m
-                );
+                panic!("No further block length available. Still need {} m", self.length_m);
             }
             Some(TrackPoint {
                 block_id: result_block_id,
@@ -233,16 +210,7 @@ mod tests {
         assert_eq!(block_map.chunks[3], (70, 7));
         assert_eq!(block_map.chunks[4], (100, 8));
 
-        let test_ids = [
-            Ok(3),
-            Ok(1),
-            Ok(65),
-            Ok(101),
-            Err(0),
-            Err(5),
-            Err(69),
-            Err(102),
-        ];
+        let test_ids = [Ok(3), Ok(1), Ok(65), Ok(101), Err(0), Err(5), Err(69), Err(102)];
         for test in test_ids.iter() {
             match test {
                 Ok(id) => {

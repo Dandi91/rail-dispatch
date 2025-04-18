@@ -68,8 +68,7 @@ impl SpeedTable {
             ..TrainSpeedEntry::default()
         });
         self.height += TRAIN_CARD_HEIGHT;
-        self.screen_image
-            .resize_canvas(WIDTH, self.height, 0, 0, Color::BLANK);
+        self.screen_image.resize_canvas(WIDTH, self.height, 0, 0, Color::BLANK);
     }
 
     pub fn unregister_train(&mut self, train_id: TrainID) {
@@ -89,13 +88,8 @@ impl SpeedTable {
                 });
 
                 // clean deleted train and everything below it
-                self.screen_image.draw_rectangle(
-                    0,
-                    y,
-                    WIDTH,
-                    height + TRAIN_CARD_HEIGHT,
-                    Color::BLANK,
-                );
+                self.screen_image
+                    .draw_rectangle(0, y, WIDTH, height + TRAIN_CARD_HEIGHT, Color::BLANK);
 
                 // copy saved part back in place
                 self.screen_image.draw(
@@ -118,8 +112,7 @@ impl SpeedTable {
 
             self.height -= TRAIN_CARD_HEIGHT;
             self.trains.remove(index);
-            self.screen_image
-                .resize_canvas(WIDTH, self.height, 0, 0, Color::BLANK);
+            self.screen_image.resize_canvas(WIDTH, self.height, 0, 0, Color::BLANK);
         }
     }
 
@@ -161,15 +154,9 @@ impl SpeedTable {
                 train.speed_mps * 3.6,
                 train.controls_percentage,
             );
-            self.screen_image.draw_text(
-                &train_status_line,
-                X_OFFSET,
-                text_y,
-                font_size,
-                Color::BLACK,
-            );
             self.screen_image
-                .draw_pixel(time_x, target_speed_y, target_speed_color);
+                .draw_text(&train_status_line, X_OFFSET, text_y, font_size, Color::BLACK);
+            self.screen_image.draw_pixel(time_x, target_speed_y, target_speed_color);
             self.screen_image.draw_pixel(time_x, speed_y, speed_color);
         });
     }
@@ -180,17 +167,14 @@ impl SpeedTable {
         let label_offset = 4;
         // horizontal lines
         for (y, label) in zip((0..GRID_HEIGHT).step_by(20), speed_labels) {
-            self.grid_image
-                .draw_line(X_OFFSET, y, WIDTH, y, &line_color);
+            self.grid_image.draw_line(X_OFFSET, y, WIDTH, y, &line_color);
             if let Some(label) = label {
-                self.grid_image
-                    .draw_text(label, 0, y - label_offset, 10, Color::BLACK);
+                self.grid_image.draw_text(label, 0, y - label_offset, 10, Color::BLACK);
             }
         }
         // vertical lines
         for x in (X_OFFSET..=WIDTH).step_by(60) {
-            self.grid_image
-                .draw_line(x, 0, x, TRAIN_GRID_HEIGHT, &line_color);
+            self.grid_image.draw_line(x, 0, x, TRAIN_GRID_HEIGHT, &line_color);
         }
     }
 
@@ -269,12 +253,7 @@ impl SpeedTable {
                 let texture = self.grid_texture.as_ref().unwrap();
                 for idx in 0..self.trains.len() as i32 {
                     let offset_y = idx * TRAIN_CARD_HEIGHT + TRAIN_HEADER_HEIGHT;
-                    d.draw_texture(
-                        texture,
-                        scroll_offset_x,
-                        offset_y + scroll_offset_y,
-                        Color::WHITE,
-                    );
+                    d.draw_texture(texture, scroll_offset_x, offset_y + scroll_offset_y, Color::WHITE);
                 }
                 // draw train speed graphs on top
                 d.draw_texture(

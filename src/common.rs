@@ -28,14 +28,7 @@ impl Direction {
     }
 }
 
-pub fn draw_text_centered(
-    d: &mut RaylibDrawHandle,
-    text: &str,
-    x: i32,
-    y: i32,
-    font_size: i32,
-    color: Color,
-) {
+pub fn draw_text_centered(d: &mut RaylibDrawHandle, text: &str, x: i32, y: i32, font_size: i32, color: Color) {
     let width = d.measure_text(text, font_size);
     d.draw_text(text, x - width / 2, y, font_size, color);
 }

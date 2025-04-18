@@ -11,11 +11,7 @@ struct PeriodicEvent {
 
 impl PeriodicEvent {
     fn new(left: f64, period: f64, event: Event<Clock>) -> Self {
-        PeriodicEvent {
-            left,
-            period,
-            event,
-        }
+        PeriodicEvent { left, period, event }
     }
 
     fn notify(&self, clock: &Clock) {
@@ -55,12 +51,7 @@ impl Clock {
         (dt - self.start_point).num_microseconds().unwrap() as f64 / 1_000_000.0
     }
 
-    pub fn subscribe_periodic_event(
-        &mut self,
-        period: f64,
-        callback: fn(&Clock),
-        start_at: Option<NaiveDateTime>,
-    ) {
+    pub fn subscribe_periodic_event(&mut self, period: f64, callback: fn(&Clock), start_at: Option<NaiveDateTime>) {
         let event = Event::new(callback);
         let left = match start_at {
             Some(start_at) => self.datetime_to_elapsed_seconds(start_at) - self.elapsed_seconds,
@@ -90,9 +81,7 @@ impl Clock {
                 fired.notify(self);
                 fired.reset();
 
-                let idx = self
-                    .periodic_events
-                    .partition_point(|x| x.left < fired.left);
+                let idx = self.periodic_events.partition_point(|x| x.left < fired.left);
                 self.periodic_events.insert(idx, fired);
             }
         }

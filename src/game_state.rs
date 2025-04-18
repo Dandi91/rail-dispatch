@@ -118,19 +118,7 @@ impl GameState<'_> {
             UIState::Board => self.board.draw(d),
             UIState::SpeedTable => self.speed_table.draw(d, thread),
         };
-        d.draw_text(
-            &self.engine.sim_duration_formatted(),
-            700,
-            3,
-            20,
-            Color::RAYWHITE,
-        );
-        d.draw_text(
-            &self.engine.time_scale_formatted(),
-            800,
-            3,
-            20,
-            Color::RAYWHITE,
-        );
+        d.draw_text(&self.engine.sim_duration_formatted(), 700, 3, 20, Color::RAYWHITE);
+        d.draw_text(&self.engine.time_scale_formatted(), 800, 3, 20, Color::RAYWHITE);
     }
 }
