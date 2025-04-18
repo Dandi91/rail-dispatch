@@ -1,8 +1,9 @@
-use raylib::RaylibThread;
 use raylib::color::Color;
 use raylib::drawing::{RaylibDraw, RaylibDrawHandle};
 use serde_repr::Deserialize_repr;
 use std::ops::Neg;
+
+pub type TrainID = usize;
 
 #[derive(Deserialize_repr, PartialEq, Copy, Clone)]
 #[repr(i8)]
@@ -25,10 +26,6 @@ impl Direction {
             Direction::Odd => value.neg(),
         }
     }
-}
-
-pub trait Drawable {
-    fn draw(&mut self, d: &mut RaylibDrawHandle, thread: &RaylibThread);
 }
 
 pub fn draw_text_centered(

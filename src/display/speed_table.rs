@@ -1,4 +1,7 @@
-use crate::common::{Drawable, draw_text_centered};
+use crate::common::{TrainID, draw_text_centered};
+use crate::display::train::TrainDisplayState;
+use crate::simulation::train::TrainStatusUpdate;
+use itertools::Itertools;
 use raylib::prelude::*;
 use std::iter::zip;
 
@@ -15,12 +18,23 @@ const WIDGET_WIDTH: i32 = 980;
 const WIDGET_HEIGHT: i32 = MAX_TRAINS_VISIBLE * TRAIN_CARD_HEIGHT + PADDING;
 const WIDTH: i32 = WIDGET_WIDTH - PADDING + 1;
 
+#[derive(Default)]
+struct TrainSpeedEntry {
+    id: TrainID,
+    number: String,
+    next_block_m: f64,
+    speed_mps: f64,
+    target_speed_mps: f64,
+    controls_percentage: i32,
+    // braking_distance_m: f64,
+}
+
 pub struct SpeedTable {
     grid_image: Image,
     grid_texture: Option<Texture2D>,
     texture_needs_updating: bool,
 
-    num_trains: i32,
+    trains: Vec<TrainSpeedEntry>,
     height: i32,
     screen_image: Image,
     screen_texture: Option<Texture2D>,
@@ -36,7 +50,7 @@ impl SpeedTable {
             grid_image: Image::gen_image_color(WIDTH, GRID_HEIGHT, Color::BLANK),
             grid_texture: None,
             texture_needs_updating: true,
-            num_trains: 0,
+            trains: Vec::new(),
             height,
             screen_image: Image::gen_image_color(WIDTH, height, Color::BLANK),
             screen_texture: None,
@@ -45,6 +59,119 @@ impl SpeedTable {
         };
         result.draw_speed_grid();
         result
+    }
+
+    pub fn register_train(&mut self, train: &TrainDisplayState) {
+        self.trains.push(TrainSpeedEntry {
+            id: train.id,
+            number: train.number.clone(),
+            ..TrainSpeedEntry::default()
+        });
+        self.height += TRAIN_CARD_HEIGHT;
+        self.screen_image
+            .resize_canvas(WIDTH, self.height, 0, 0, Color::BLANK);
+    }
+
+    pub fn unregister_train(&mut self, train_id: TrainID) {
+        let entry = self.trains.iter().find_position(|t| t.id == train_id);
+        if let Some((index, ..)) = entry {
+            if index != self.trains.len() - 1 {
+                let y = index as i32 * TRAIN_CARD_HEIGHT;
+                let height = self.height - (y + TRAIN_CARD_HEIGHT);
+
+                // copy and crop trains below the deleted one
+                let mut bottom_part = self.screen_image.clone();
+                bottom_part.crop(Rectangle {
+                    x: 0.0,
+                    y: (y + TRAIN_CARD_HEIGHT) as f32,
+                    width: WIDTH as f32,
+                    height: height as f32,
+                });
+
+                // clean deleted train and everything below it
+                self.screen_image.draw_rectangle(
+                    0,
+                    y,
+                    WIDTH,
+                    height + TRAIN_CARD_HEIGHT,
+                    Color::BLANK,
+                );
+
+                // copy saved part back in place
+                self.screen_image.draw(
+                    &bottom_part,
+                    Rectangle {
+                        x: 0.0,
+                        y: 0.0,
+                        width: WIDTH as f32,
+                        height: height as f32,
+                    },
+                    Rectangle {
+                        x: 0.0,
+                        y: y as f32,
+                        width: WIDTH as f32,
+                        height: height as f32,
+                    },
+                    Color::WHITE,
+                );
+            }
+
+            self.height -= TRAIN_CARD_HEIGHT;
+            self.trains.remove(index);
+            self.screen_image
+                .resize_canvas(WIDTH, self.height, 0, 0, Color::BLANK);
+        }
+    }
+
+    pub fn process_train_update(&mut self, update: &TrainStatusUpdate) {
+        let entry = self.trains.iter_mut().find_position(|t| t.id == update.id);
+        if let Some((.., train)) = entry {
+            train.next_block_m = update.next_block_m;
+            train.speed_mps = update.speed_mps;
+            train.target_speed_mps = update.target_speed_mps;
+            train.controls_percentage = update.control_percentage;
+        }
+    }
+
+    pub fn update(&mut self, elapsed_seconds: f64) {
+        let speed_color = Color::new(0xBB, 0x00, 0x00, 0xFF);
+        let target_speed_color = Color::ORANGE;
+        let max_speed_mps = 100.0 / 3.6;
+        let max_time_s = 900;
+
+        let speed_to_coord = |offset_y: i32, speed_mps: f64| -> i32 {
+            let norm = 1.0 - (speed_mps.clamp(0.0, max_speed_mps) / max_speed_mps);
+            (norm * TRAIN_GRID_HEIGHT as f64).trunc() as i32 + offset_y + TRAIN_HEADER_HEIGHT
+        };
+
+        let font_size = 10;
+        let time_x = elapsed_seconds.round() as i32 % max_time_s + X_OFFSET;
+        self.trains.iter().enumerate().for_each(|(index, train)| {
+            let offset_y = index as i32 * TRAIN_CARD_HEIGHT;
+            let target_speed_y = speed_to_coord(offset_y, train.target_speed_mps);
+            let speed_y = speed_to_coord(offset_y, train.speed_mps);
+
+            self.screen_image
+                .draw_rectangle(0, offset_y, WIDTH, TRAIN_HEADER_HEIGHT, Color::BLANK);
+            let text_y = offset_y + font_size / 2;
+            let train_status_line = format!(
+                "#{} | next block in {:.3} m | {:.0} km/h | {}%",
+                &train.number,
+                train.next_block_m,
+                train.speed_mps * 3.6,
+                train.controls_percentage,
+            );
+            self.screen_image.draw_text(
+                &train_status_line,
+                X_OFFSET,
+                text_y,
+                font_size,
+                Color::BLACK,
+            );
+            self.screen_image
+                .draw_pixel(time_x, target_speed_y, target_speed_color);
+            self.screen_image.draw_pixel(time_x, speed_y, speed_color);
+        });
     }
 
     fn draw_speed_grid(&mut self) {
@@ -82,14 +209,12 @@ impl SpeedTable {
             self.texture_needs_updating = false;
         }
     }
-}
 
-impl Drawable for SpeedTable {
-    fn draw(&mut self, d: &mut RaylibDrawHandle, thread: &RaylibThread) {
+    pub fn draw(&mut self, d: &mut RaylibDrawHandle, thread: &RaylibThread) {
         d.clear_background(Color::LIGHTGRAY);
         d.set_window_size(WIDGET_WIDTH, WIDGET_HEIGHT);
 
-        if self.num_trains == 0 {
+        if self.trains.is_empty() {
             self.draw_no_trains(d);
             return;
         }
@@ -142,7 +267,7 @@ impl Drawable for SpeedTable {
                 let scroll_offset_y = half_padding + self.scroll.y as i32;
                 // draw speed grid for every train
                 let texture = self.grid_texture.as_ref().unwrap();
-                for idx in 0..self.num_trains {
+                for idx in 0..self.trains.len() as i32 {
                     let offset_y = idx * TRAIN_CARD_HEIGHT + TRAIN_HEADER_HEIGHT;
                     d.draw_texture(
                         texture,

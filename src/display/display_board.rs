@@ -1,4 +1,3 @@
-use crate::common::Drawable;
 use crate::consts::TRACK_WIDTH;
 use crate::lamp::Lamp;
 use crate::level::Level;
@@ -20,10 +19,8 @@ impl<'a> DisplayBoard<'a> {
             lamps_by_id: level.lamps.iter().map(|l| (l.id, l)).collect(),
         }
     }
-}
 
-impl Drawable for DisplayBoard<'_> {
-    fn draw(&mut self, d: &mut RaylibDrawHandle, _: &RaylibThread) {
+    pub fn draw(&mut self, d: &mut RaylibDrawHandle) {
         d.clear_background(BOARD_BACKGROUND);
         d.draw_rectangle(0, 50, 300, TRACK_WIDTH, Color::BLACK);
 

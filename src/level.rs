@@ -39,6 +39,6 @@ impl Level {
         let mut file = fs::File::open(path).unwrap();
         let mut contents = String::new();
         file.read_to_string(&mut contents).unwrap();
-        toml::from_str::<Level>(&contents).unwrap()
+        toml::from_str(&contents).unwrap()
     }
 }

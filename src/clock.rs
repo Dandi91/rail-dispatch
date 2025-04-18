@@ -28,16 +28,16 @@ impl PeriodicEvent {
 }
 
 pub struct Clock {
+    pub elapsed_seconds: f64,
     start_point: NaiveDateTime,
-    elapsed_seconds: f64,
     periodic_events: VecDeque<PeriodicEvent>,
 }
 
 impl Clock {
     pub fn new(start_point: Option<NaiveDateTime>) -> Self {
         Clock {
-            start_point: start_point.unwrap_or(Local::now().naive_local()),
             elapsed_seconds: 0.0,
+            start_point: start_point.unwrap_or(Local::now().naive_local()),
             periodic_events: VecDeque::new(),
         }
     }
@@ -68,7 +68,8 @@ impl Clock {
         };
 
         let idx = self.periodic_events.partition_point(|x| x.left < left);
-        self.periodic_events.insert(idx, PeriodicEvent::new(left, period, event));
+        self.periodic_events
+            .insert(idx, PeriodicEvent::new(left, period, event));
     }
 
     fn handle_periodic_events(&mut self, dt: f64) {

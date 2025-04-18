@@ -81,7 +81,9 @@ impl BlockMap {
     pub fn from_level(level: &Level) -> Self {
         let mut map = Self::from_iterable(&level.blocks);
         for conn in &level.connections {
-            let start = map.get_block_by_id_mut(&conn.start).expect("block not found");
+            let start = map
+                .get_block_by_id_mut(&conn.start)
+                .expect("block not found");
             start.next = Some(conn.end);
             let end = map.get_block_by_id_mut(&conn.end).expect("block not found");
             end.prev = Some(conn.start);

@@ -1,17 +1,21 @@
-use crate::train::TrainSpawnState;
+use crate::common::TrainID;
+use crate::display::train::TrainDisplayState;
+use crate::simulation::train::{TrainSpawnState, TrainStatusUpdate};
 
 pub enum Command {
+    SetTimeScale(f64),
     TrainSpawn(Box<TrainSpawnState>),
-    TrainDespawn,
+    TrainDespawn(TrainID),
     Shutdown,
 }
 
 pub enum SimulationUpdate {
     Clock(f64),
-    TrainState,
+    TrainState(TrainStatusUpdate),
     BlockOccupation,
+    RegisterTrain(TrainDisplayState),
+    UnregisterTrain(TrainID),
 }
-
 
 #[derive(Default)]
 pub struct Event<T> {

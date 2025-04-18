@@ -1,17 +1,13 @@
-mod block;
 mod clock;
 mod common;
 mod consts;
-mod display_board;
-mod engine;
+mod display;
 mod event;
 mod game_state;
 mod lamp;
 mod level;
-mod speed_table;
-mod train;
+mod simulation;
 
-use crate::common::Drawable;
 use crate::game_state::GameState;
 use crate::level::Level;
 use raylib::prelude::*;
@@ -23,20 +19,19 @@ fn main() {
         .resizable()
         .build();
 
-    rl.set_target_fps(30);
+    rl.set_target_fps(60);
 
     let level = Level::load_from_file("resources/level.toml");
     let mut state = GameState::new(&level);
-    state.engine.start();
+    state.start_game();
 
     while !rl.window_should_close() {
+        state.process_updates();
         let mut d = rl.begin_drawing(&thread);
         state.process_input(&d);
         state.draw(&mut d, &thread);
         d.draw_fps(3, 5);
-        d.draw_text(&state.engine.sim_duration_formatted(), 700, 3, 20, Color::RAYWHITE);
-        d.draw_text(&state.engine.time_scale_formatted(), 800, 3, 20, Color::RAYWHITE);
     }
 
-    state.engine.stop();
+    state.stop_game();
 }

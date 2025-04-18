@@ -1,52 +1,90 @@
-use crate::common::Drawable;
-use crate::display_board::DisplayBoard;
-use crate::engine::Engine;
+use crate::display::display_board::DisplayBoard;
+use crate::display::speed_table::SpeedTable;
+use crate::display::train::TrainDisplayState;
+use crate::event::SimulationUpdate;
 use crate::level::Level;
-use crate::speed_table::SpeedTable;
+use crate::simulation::engine::Engine;
+use itertools::Itertools;
 use raylib::RaylibThread;
+use raylib::color::Color;
 use raylib::consts::KeyboardKey;
-use raylib::drawing::RaylibDrawHandle;
+use raylib::drawing::{RaylibDraw, RaylibDrawHandle};
 
-enum State {
+enum UIState {
     Board,
     SpeedTable,
 }
 
-const DEFAULT_STATE: State = State::Board;
+const DEFAULT_UI_STATE: UIState = UIState::Board;
 
 pub struct GameState<'a> {
-    state: State,
+    // UI
+    ui_state: UIState,
     level: &'a Level,
     board: DisplayBoard<'a>,
     speed_table: SpeedTable,
-    pub engine: Engine,
+    // Logic
+    engine: Engine,
+    trains: Vec<TrainDisplayState>,
 }
 
 impl GameState<'_> {
     pub fn new(level: &Level) -> GameState {
         GameState {
-            state: State::Board,
+            ui_state: UIState::Board,
             level,
             board: DisplayBoard::new(level),
             speed_table: SpeedTable::new(),
             engine: Engine::new(level),
+            trains: Vec::new(),
         }
     }
 
-    fn debug_spawn_train(&mut self) {
-        let train_number = self.engine.add_train();
-        println!("Train {} registered", train_number);
+    fn debug_spawn_train(&self) {
+        self.engine.spawn_train();
     }
 
-    fn debug_despawn_train(&mut self) {
-        self.engine.remove_last_train();
+    fn debug_despawn_train(&self) {
+        if let Some(train) = self.trains.first() {
+            self.engine.despawn_train(train.id);
+        }
+    }
+
+    pub fn process_updates(&mut self) {
+        loop {
+            match self.engine.receive_command() {
+                Ok(update) => match update {
+                    SimulationUpdate::RegisterTrain(train) => {
+                        println!("Train {} registered with ID {}", train.number, train.id);
+                        self.speed_table.register_train(&train);
+                        self.trains.push(train);
+                    }
+                    SimulationUpdate::UnregisterTrain(id) => {
+                        let found = self.trains.iter().find_position(|x| x.id == id);
+                        if let Some((pos, train)) = found {
+                            println!("Train {} despawned with ID {}", train.number, train.id);
+                            self.speed_table.unregister_train(id);
+                            self.trains.swap_remove(pos);
+                        }
+                    }
+                    SimulationUpdate::TrainState(state) => {
+                        self.speed_table.process_train_update(&state);
+                    }
+                    SimulationUpdate::BlockOccupation => {}
+                    SimulationUpdate::Clock(elapsed_seconds) => {
+                        self.speed_table.update(elapsed_seconds);
+                    }
+                },
+                Err(..) => return,
+            }
+        }
     }
 
     pub fn process_input(&mut self, d: &RaylibDrawHandle) {
         if d.is_key_pressed(KeyboardKey::KEY_S) {
-            self.state = match self.state {
-                State::SpeedTable => DEFAULT_STATE,
-                _ => State::SpeedTable,
+            self.ui_state = match self.ui_state {
+                UIState::SpeedTable => DEFAULT_UI_STATE,
+                _ => UIState::SpeedTable,
             }
         }
 
@@ -66,13 +104,33 @@ impl GameState<'_> {
             self.debug_despawn_train()
         }
     }
-}
 
-impl Drawable for GameState<'_> {
-    fn draw(&mut self, d: &mut RaylibDrawHandle, thread: &RaylibThread) {
-        match self.state {
-            State::Board => self.board.draw(d, thread),
-            State::SpeedTable => self.speed_table.draw(d, thread),
-        }
+    pub fn start_game(&mut self) {
+        self.engine.start();
+    }
+
+    pub fn stop_game(&mut self) {
+        self.engine.stop();
+    }
+
+    pub fn draw(&mut self, d: &mut RaylibDrawHandle, thread: &RaylibThread) {
+        match self.ui_state {
+            UIState::Board => self.board.draw(d),
+            UIState::SpeedTable => self.speed_table.draw(d, thread),
+        };
+        d.draw_text(
+            &self.engine.sim_duration_formatted(),
+            700,
+            3,
+            20,
+            Color::RAYWHITE,
+        );
+        d.draw_text(
+            &self.engine.time_scale_formatted(),
+            800,
+            3,
+            20,
+            Color::RAYWHITE,
+        );
     }
 }
