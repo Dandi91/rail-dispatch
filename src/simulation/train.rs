@@ -2,7 +2,6 @@ use crate::common::{Direction, TrainId};
 use crate::event::SimulationUpdate;
 use crate::simulation::block::{BlockId, BlockMap, TrackPoint};
 use std::collections::VecDeque;
-use std::sync::mpsc::Sender;
 
 #[derive(Default)]
 pub struct TrainControls {
@@ -130,6 +129,7 @@ pub struct Train {
     front_position: TrackPoint,
     back_position: TrackPoint,
     target_speed_margin_mps: f64,
+    position_updated: bool,
 }
 
 impl Train {
@@ -138,17 +138,18 @@ impl Train {
         state: TrainSpawnState,
         rail_vehicles: Vec<RailVehicle>,
         block_map: &BlockMap,
-        sender: &Sender<SimulationUpdate>,
+        notify: impl Fn(SimulationUpdate),
     ) -> Self {
         let stats = get_train_stats(&rail_vehicles);
         let mut trace: Vec<TrackPoint> = state
             .spawn_point
             .walk(stats.length_m.max(1.0), state.direction.reverse(), block_map)
             .collect();
-        let occupied = trace.iter().map(|x| {
-            sender.send(SimulationUpdate::BlockOccupation(x.block_id, true)).unwrap();
-            x.block_id
-        }).collect();
+        let occupied: VecDeque<_> = trace.iter().map(|x| x.block_id).collect();
+        occupied
+            .iter()
+            .cloned()
+            .for_each(|id| notify(SimulationUpdate::BlockOccupation(id, true)));
 
         Train {
             id,
@@ -163,6 +164,7 @@ impl Train {
             front_position: state.spawn_point,
             back_position: trace.pop().unwrap(),
             target_speed_margin_mps: 0.0,
+            position_updated: false,
         }
     }
 
@@ -201,7 +203,7 @@ impl Train {
         TrainControls::default()
     }
 
-    pub fn update(&mut self, dt: f64, map: &BlockMap, sender: &Sender<SimulationUpdate>) {
+    pub fn update(&mut self, dt: f64, map: &BlockMap, notify: impl Fn(SimulationUpdate)) {
         if dt <= 0.0 {
             return;
         }
@@ -221,7 +223,7 @@ impl Train {
         } else {
             0.0
         };
-        self.speed_mps = self.speed_mps + self.acceleration_mps2 * dt;
+        self.speed_mps += self.acceleration_mps2 * dt;
 
         if self.speed_mps < 0.1 && self.target_speed_mps < 0.25 {
             self.speed_mps = 0.0; // brake to full stop
@@ -232,8 +234,7 @@ impl Train {
         if dx > 0.0 {
             let new_front = self.front_position.step_by(dx, self.direction, map);
             if self.front_position.block_id != new_front.block_id {
-                let update = SimulationUpdate::BlockOccupation(new_front.block_id, true);
-                sender.send(update).unwrap();
+                notify(SimulationUpdate::BlockOccupation(new_front.block_id, true));
                 self.occupied_blocks.push_front(new_front.block_id);
             }
             let new_back = self
@@ -241,20 +242,26 @@ impl Train {
                 .step_by(self.stats.length_m, self.direction.reverse(), map);
             if self.back_position.block_id != new_back.block_id {
                 let freed = self.occupied_blocks.pop_back().unwrap();
-                let update = SimulationUpdate::BlockOccupation(freed, false);
-                sender.send(update).unwrap();
+                notify(SimulationUpdate::BlockOccupation(freed, false));
             }
             self.front_position = new_front;
             self.back_position = new_back;
+            self.position_updated = true;
         }
+    }
 
-        let update = SimulationUpdate::TrainState(TrainStatusUpdate {
-            id: self.id,
-            speed_mps: self.speed_mps,
-            target_speed_mps: self.target_speed_mps,
-            next_block_m: map.get_available_length(&self.front_position, self.direction),
-            control_percentage: self.controls.as_percentage(),
-        });
-        sender.send(update).unwrap();
+    pub fn get_state_update(&mut self, map: &BlockMap) -> Option<TrainStatusUpdate> {
+        if self.position_updated {
+            self.position_updated = false;
+            Some(TrainStatusUpdate {
+                id: self.id,
+                speed_mps: self.speed_mps,
+                target_speed_mps: self.target_speed_mps,
+                next_block_m: map.get_available_length(&self.front_position, self.direction),
+                control_percentage: self.controls.as_percentage(),
+            })
+        } else {
+            None
+        }
     }
 }

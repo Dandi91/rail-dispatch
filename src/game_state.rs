@@ -9,6 +9,7 @@ use raylib::RaylibThread;
 use raylib::color::Color;
 use raylib::consts::KeyboardKey;
 use raylib::drawing::{RaylibDraw, RaylibDrawHandle};
+use std::sync::mpsc::TryRecvError;
 
 enum UIState {
     Board,
@@ -66,18 +67,21 @@ impl GameState {
                             self.trains.swap_remove(pos);
                         }
                     }
-                    SimulationUpdate::TrainState(state) => {
-                        self.speed_table.process_train_update(&state);
+                    SimulationUpdate::TrainStates(time, updates) => {
+                        self.speed_table.update(time, &updates);
                     }
                     SimulationUpdate::BlockOccupation(block_id, state) => {
-                        println!("Processing block {} occupied({})", block_id, state);
+                        println!("Block {} occupied({})", block_id, state);
                         self.board.process_update(block_id, state);
                     }
-                    SimulationUpdate::Clock(elapsed_seconds) => {
-                        self.speed_table.update(elapsed_seconds);
-                    }
+                    SimulationUpdate::Tick(..) => {}
                 },
-                Err(..) => return,
+                Err(err) => {
+                    match err {
+                        TryRecvError::Empty => return,
+                        TryRecvError::Disconnected => panic!("SimThread crashed"),
+                    };
+                }
             }
         }
     }

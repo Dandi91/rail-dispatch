@@ -116,17 +116,17 @@ impl SpeedTable {
         }
     }
 
-    pub fn process_train_update(&mut self, update: &TrainStatusUpdate) {
-        let entry = self.trains.iter_mut().find_position(|t| t.id == update.id);
-        if let Some((.., train)) = entry {
-            train.next_block_m = update.next_block_m;
-            train.speed_mps = update.speed_mps;
-            train.target_speed_mps = update.target_speed_mps;
-            train.controls_percentage = update.control_percentage;
+    pub fn update(&mut self, elapsed_seconds: f64, train_updates: &[TrainStatusUpdate]) {
+        for update in train_updates {
+            let entry = self.trains.iter_mut().find_position(|t| t.id == update.id);
+            if let Some((.., train)) = entry {
+                train.next_block_m = update.next_block_m;
+                train.speed_mps = update.speed_mps;
+                train.target_speed_mps = update.target_speed_mps;
+                train.controls_percentage = update.control_percentage;
+            }
         }
-    }
-
-    pub fn update(&mut self, elapsed_seconds: f64) {
+        
         let speed_color = Color::new(0xBB, 0x00, 0x00, 0xFF);
         let target_speed_color = Color::ORANGE;
         let max_speed_mps = 100.0 / 3.6;

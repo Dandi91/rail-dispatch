@@ -41,6 +41,10 @@ impl SimulationState {
         }
     }
 
+    fn send_closure(&self) -> impl Fn(SimulationUpdate) {
+        |update| self.sender.send(update).unwrap()
+    }
+
     fn send_update(&self, update: SimulationUpdate) {
         self.sender.send(update).unwrap();
     }
@@ -85,12 +89,21 @@ impl SimulationState {
             last_wake = this_wake;
 
             // run simulation based on the actual dt
-            self.clock.tick(sim_dt);
+            let notify = |x| self.sender.send(x).unwrap();
             self.trains
                 .iter_mut()
-                .for_each(|train| train.update(sim_dt, &self.block_map, &self.sender));
+                .for_each(|train| train.update(sim_dt, &self.block_map, notify));
 
-            self.send_update(SimulationUpdate::Clock(self.clock.elapsed_seconds));
+            self.clock.tick(sim_dt);
+            self.send_update(SimulationUpdate::Tick(self.clock.elapsed_seconds));
+
+            let train_updates = self
+                .trains
+                .iter_mut()
+                .map(|train| train.get_state_update(&self.block_map))
+                .flatten()
+                .collect();
+            self.send_update(SimulationUpdate::TrainStates(self.clock.elapsed_seconds, train_updates));
         }
         println!("Shutting down simulation");
     }
@@ -109,7 +122,7 @@ impl SimulationState {
         cars.extend([RailVehicle::new_car(30_000.0, 15.0, 70_000.0); 75]);
 
         let direction = spawn_state.direction;
-        let mut train = Train::spawn_at(self.next_id, spawn_state, cars, &self.block_map, &self.sender);
+        let mut train = Train::spawn_at(self.next_id, spawn_state, cars, &self.block_map, self.send_closure());
         train.set_target_speed_kmh(80.0);
         self.trains.push(train);
 

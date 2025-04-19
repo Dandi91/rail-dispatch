@@ -3,6 +3,10 @@ use chrono::{Local, NaiveDateTime, TimeDelta};
 use std::collections::VecDeque;
 use std::ops::Add;
 
+pub enum ClockEvent {
+    Every100ms(f64),
+}
+
 struct PeriodicEvent {
     left: f64,
     period: f64,
