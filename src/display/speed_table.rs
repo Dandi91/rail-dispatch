@@ -126,7 +126,7 @@ impl SpeedTable {
                 train.controls_percentage = update.control_percentage;
             }
         }
-        
+
         let speed_color = Color::new(0xBB, 0x00, 0x00, 0xFF);
         let target_speed_color = Color::ORANGE;
         let max_speed_mps = 100.0 / 3.6;

@@ -5,10 +5,7 @@ use crate::event::SimulationUpdate;
 use crate::level::Level;
 use crate::simulation::engine::Engine;
 use itertools::Itertools;
-use raylib::RaylibThread;
-use raylib::color::Color;
-use raylib::consts::KeyboardKey;
-use raylib::drawing::{RaylibDraw, RaylibDrawHandle};
+use raylib::prelude::*;
 use std::sync::mpsc::TryRecvError;
 
 enum UIState {

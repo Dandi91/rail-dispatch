@@ -11,7 +11,8 @@ use crate::game_state::GameState;
 use raylib::prelude::*;
 
 fn main() {
-    let (mut rl, thread) = init().size(1024, 960).title("Rail Dispatch").resizable().build();
+    let title = "Rail Dispatch";
+    let (mut rl, thread) = init().size(1024, 960).title(title).resizable().build();
     rl.set_target_fps(60);
 
     let mut state = GameState::new();

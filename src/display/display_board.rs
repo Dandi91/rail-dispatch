@@ -1,5 +1,5 @@
 use crate::consts::TRACK_WIDTH;
-use crate::display::lamp::{Lamp, LampState, LAMP_COLOR_GRAY, LAMP_COLOR_RED};
+use crate::display::lamp::{LAMP_COLOR_GRAY, LAMP_COLOR_RED, Lamp, LampState};
 use crate::level::{Level, SignalData};
 use crate::simulation::block::BlockId;
 use raylib::prelude::*;
@@ -17,7 +17,7 @@ impl DisplayBoard {
     pub fn new(level: &Level) -> Self {
         DisplayBoard {
             lamps: level.lamps.iter().cloned().map(|l| (l.id, l)).collect(),
-            signals: level.signals.iter().cloned().map(|sig| (sig.id , sig)).collect(),
+            signals: level.signals.iter().cloned().map(|sig| (sig.id, sig)).collect(),
         }
     }
 
