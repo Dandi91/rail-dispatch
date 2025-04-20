@@ -45,7 +45,7 @@ impl SimulationState {
 
     fn new(init: ThreadInitState) -> Self {
         let mut clock = Clock::new(None);
-        println!("Clock is set at {:?}", clock.current());
+        println!("Clock is set to {}", clock.current());
         Self::setup_events(&mut clock);
         SimulationState {
             next_id: 0,

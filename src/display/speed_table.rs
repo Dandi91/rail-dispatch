@@ -254,6 +254,11 @@ impl SpeedTable {
 
         let half_padding = PADDING / 2;
         let scroll_bar_width = 20;
+        d.gui_set_style(
+            GuiControl::DEFAULT,
+            GuiDefaultProperty::BACKGROUND_COLOR,
+            Color::BLANK.color_to_int(),
+        );
         (_, self.view, self.scroll) = d.gui_scroll_panel(
             Rectangle {
                 width: WIDGET_WIDTH as f32,

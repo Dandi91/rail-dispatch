@@ -203,6 +203,19 @@ impl Train {
         TrainControls::default()
     }
 
+    fn get_braking_distance(&self, target_speed_mps: f64) -> f64 {
+        if target_speed_mps > self.speed_mps {
+            return 0.0;
+        }
+
+        let braking_force = self.stats.max_braking_force_n * 0.85;
+        let deceleration_mps2 = braking_force / self.stats.mass_kg;
+
+        let speed_diff_mps = self.speed_mps - target_speed_mps;
+        let speed_sum = self.speed_mps + target_speed_mps;
+        0.0f64.max((speed_diff_mps * speed_sum) / (2.0 * deceleration_mps2))
+    }
+
     pub fn update(&mut self, dt: f64, map: &BlockMap, notify: impl Fn(SimulationUpdate)) {
         if dt <= 0.0 {
             return;
