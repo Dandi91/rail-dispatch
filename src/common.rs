@@ -1,5 +1,6 @@
 use raylib::color::Color;
 use raylib::drawing::{RaylibDraw, RaylibDrawHandle};
+use raylib::texture::Image;
 use serde_repr::Deserialize_repr;
 use std::ops::Neg;
 
@@ -31,4 +32,17 @@ impl Direction {
 pub fn draw_text_centered(d: &mut RaylibDrawHandle, text: &str, x: i32, y: i32, font_size: i32, color: Color) {
     let width = d.measure_text(text, font_size);
     d.draw_text(text, x - width / 2, y, font_size, color);
+}
+
+pub fn image_draw_text_centered(
+    d: &RaylibDrawHandle,
+    image: &mut Image,
+    text: &str,
+    x: i32,
+    y: i32,
+    font_size: i32,
+    color: Color,
+) {
+    let width = d.measure_text(text, font_size);
+    image.draw_text(text, x - width / 2, y, font_size, color);
 }

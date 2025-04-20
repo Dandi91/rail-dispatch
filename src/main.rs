@@ -19,8 +19,8 @@ fn main() {
     state.start_game();
 
     while !rl.window_should_close() {
-        state.process_updates();
         let mut d = rl.begin_drawing(&thread);
+        state.process_updates(&d);
         state.process_input(&d);
         state.draw(&mut d, &thread);
         d.draw_fps(3, 5);

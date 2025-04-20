@@ -1,3 +1,4 @@
+use crate::clock::ClockEvent;
 use crate::display::display_board::DisplayBoard;
 use crate::display::speed_table::SpeedTable;
 use crate::display::train::TrainDisplayState;
@@ -47,7 +48,7 @@ impl GameState {
         }
     }
 
-    pub fn process_updates(&mut self) {
+    pub fn process_updates(&mut self, d: &RaylibDrawHandle) {
         loop {
             match self.engine.receive_command() {
                 Ok(update) => match update {
@@ -71,7 +72,12 @@ impl GameState {
                         println!("Block {} occupied({})", block_id, state);
                         self.board.process_update(block_id, state);
                     }
-                    SimulationUpdate::Tick(..) => {}
+                    SimulationUpdate::Clock(payload) => match payload.event {
+                        ClockEvent::SpeedTableTailClean => self.speed_table.cleanup_tail(),
+                        ClockEvent::EveryQuarterHour => self.speed_table.scroll_quarter(d, payload.current_time),
+                        ClockEvent::ClockUpdate => self.board.clock_update(payload.current_time),
+                        _ => {}
+                    },
                 },
                 Err(err) => {
                     match err {

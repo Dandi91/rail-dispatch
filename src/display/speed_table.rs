@@ -1,12 +1,15 @@
-use crate::common::{TrainId, draw_text_centered};
+use crate::common::{TrainId, draw_text_centered, image_draw_text_centered};
 use crate::display::train::TrainDisplayState;
 use crate::simulation::train::TrainStatusUpdate;
+use chrono::{NaiveDateTime, Timelike};
 use itertools::Itertools;
+use raylib::error::Error;
 use raylib::prelude::*;
 use std::iter::zip;
 
 const PADDING: i32 = 60;
 const X_OFFSET: i32 = 20;
+const LABEL_OFFSET: i32 = 4;
 const TRAIN_GRID_HEIGHT: i32 = 100;
 const TIME_LABELS_HEIGHT: i32 = 20;
 const TRAIN_HEADER_HEIGHT: i32 = 20;
@@ -17,6 +20,7 @@ const MAX_TRAINS_VISIBLE: i32 = 6;
 const WIDGET_WIDTH: i32 = 980;
 const WIDGET_HEIGHT: i32 = MAX_TRAINS_VISIBLE * TRAIN_CARD_HEIGHT + PADDING;
 const WIDTH: i32 = WIDGET_WIDTH - PADDING + 1;
+pub const KEEP_TAIL_S: i32 = 120;
 
 #[derive(Default)]
 struct TrainSpeedEntry {
@@ -116,6 +120,17 @@ impl SpeedTable {
         }
     }
 
+    pub fn scroll_quarter(&mut self, d: &RaylibDrawHandle, now: NaiveDateTime) {
+        self.generate_time_labels(d, now);
+        self.screen_image
+            .draw_rectangle(0, 0, WIDTH - KEEP_TAIL_S, self.height, Color::BLANK);
+    }
+
+    pub fn cleanup_tail(&mut self) {
+        self.screen_image
+            .draw_rectangle(WIDTH - KEEP_TAIL_S, 0, WIDTH, self.height, Color::BLANK);
+    }
+
     pub fn update(&mut self, elapsed_seconds: f64, train_updates: &[TrainStatusUpdate]) {
         for update in train_updates {
             let entry = self.trains.iter_mut().find_position(|t| t.id == update.id);
@@ -161,15 +176,34 @@ impl SpeedTable {
         });
     }
 
+    fn generate_time_labels(&mut self, d: &RaylibDrawHandle, now: NaiveDateTime) {
+        let quarter = now.minute() / 15 * 15;
+        let time_labels = (quarter..quarter + 15).map(|minute| format!("{:02}:{:02}", now.hour(), minute));
+        // clear place before printing new text
+        self.grid_image
+            .draw_rectangle(0, TRAIN_GRID_HEIGHT + 1, WIDTH, TIME_LABELS_HEIGHT, Color::BLANK);
+        zip((X_OFFSET..WIDTH).step_by(60), time_labels).for_each(|(x, label)| {
+            image_draw_text_centered(
+                d,
+                &mut self.grid_image,
+                &label,
+                x,
+                TRAIN_GRID_HEIGHT + LABEL_OFFSET,
+                10,
+                Color::BLACK,
+            );
+        });
+        self.texture_needs_updating = true;
+    }
+
     fn draw_speed_grid(&mut self) {
         let line_color = Color::new(0x8D, 0x8F, 0x94, 0xFF);
         let speed_labels = [None, Some("80"), Some("60"), Some("40"), Some("20"), None];
-        let label_offset = 4;
         // horizontal lines
         for (y, label) in zip((0..GRID_HEIGHT).step_by(20), speed_labels) {
             self.grid_image.draw_line(X_OFFSET, y, WIDTH, y, &line_color);
             if let Some(label) = label {
-                self.grid_image.draw_text(label, 0, y - label_offset, 10, Color::BLACK);
+                self.grid_image.draw_text(label, 0, y - LABEL_OFFSET, 10, Color::BLACK);
             }
         }
         // vertical lines
@@ -187,9 +221,10 @@ impl SpeedTable {
 
     fn update_grid_texture(&mut self, d: &mut RaylibDrawHandle, thread: &RaylibThread) {
         if self.texture_needs_updating {
-            if self.grid_texture.is_none() {
-                self.grid_texture = d.load_texture_from_image(thread, &self.grid_image).ok();
-            }
+            match self.grid_texture {
+                Some(ref mut texture) => update_texture(texture, &self.grid_image).unwrap(),
+                None => self.grid_texture = d.load_texture_from_image(thread, &self.grid_image).ok(),
+            };
             self.texture_needs_updating = false;
         }
     }
@@ -209,13 +244,7 @@ impl SpeedTable {
                 if texture.height != self.height {
                     self.screen_texture = d.load_texture_from_image(thread, &self.screen_image).ok()
                 } else {
-                    let data = unsafe {
-                        std::slice::from_raw_parts(
-                            self.screen_image.data as *const u8,
-                            self.screen_image.get_pixel_data_size(),
-                        )
-                    };
-                    texture.update_texture(data).unwrap();
+                    update_texture(texture, &self.screen_image).unwrap();
                 }
             }
             None => {
@@ -265,4 +294,9 @@ impl SpeedTable {
             },
         );
     }
+}
+
+fn update_texture(texture: &mut Texture2D, image: &Image) -> Result<(), Error> {
+    let data = unsafe { std::slice::from_raw_parts(image.data as *const u8, image.get_pixel_data_size()) };
+    texture.update_texture(data)
 }

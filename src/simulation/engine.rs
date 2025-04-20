@@ -1,15 +1,17 @@
-use crate::clock::Clock;
+use crate::clock::{Clock, ClockEvent};
 use crate::common::{Direction, TrainId};
+use crate::display::speed_table::KEEP_TAIL_S;
 use crate::display::train::{TrainDisplayState, TrainKind};
 use crate::event::{Command, SimulationUpdate};
 use crate::level::Level;
 use crate::simulation::block::{BlockMap, TrackPoint};
-use crate::simulation::train::{RailVehicle, Train, TrainSpawnState};
+use crate::simulation::train::{RailVehicle, Train, TrainSpawnState, TrainStatusUpdate};
 use atomic_float::AtomicF64;
+use chrono::{TimeDelta, Timelike};
 use itertools::Itertools;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
-use std::sync::{Arc, mpsc};
+use std::sync::{mpsc, Arc};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -17,6 +19,7 @@ use std::time::{Duration, Instant};
 const MULTIPLIERS: [f64; 7] = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0];
 const DEFAULT_MULTIPLIER_INDEX: usize = 2;
 const UNIT_DT: f64 = 0.01;
+const KEEP_SPEED_TABLE_TAIL: TimeDelta = TimeDelta::seconds(KEEP_TAIL_S as i64);
 
 struct SimulationState {
     next_id: TrainId,
@@ -29,13 +32,27 @@ struct SimulationState {
 }
 
 impl SimulationState {
+    fn setup_events(clock: &mut Clock) {
+        let now = clock.current();
+        clock.subscribe_periodic_event(ClockEvent::TrainInfoUpdate, 0.1, None);
+        clock.subscribe_periodic_event(ClockEvent::ClockUpdate, 1.0, Some(now));
+
+        let quarter_hour_start = now.with_minute(now.minute() / 15 * 15).unwrap();
+        let tail_clean = quarter_hour_start + KEEP_SPEED_TABLE_TAIL;
+        clock.subscribe_periodic_event(ClockEvent::EveryQuarterHour, 15.0 * 60.0, Some(quarter_hour_start));
+        clock.subscribe_periodic_event(ClockEvent::SpeedTableTailClean, 15.0 * 60.0, Some(tail_clean));
+    }
+
     fn new(init: ThreadInitState) -> Self {
+        let mut clock = Clock::new(None);
+        println!("Clock is set at {:?}", clock.current());
+        Self::setup_events(&mut clock);
         SimulationState {
             next_id: 0,
             time_scale: MULTIPLIERS[DEFAULT_MULTIPLIER_INDEX],
             sender: init.sender,
             receiver: init.receiver,
-            clock: Clock::new(None),
+            clock,
             block_map: init.block_map,
             trains: Vec::new(),
         }
@@ -89,33 +106,34 @@ impl SimulationState {
             last_wake = this_wake;
 
             // run simulation based on the actual dt
-            let notify = |x| self.sender.send(x).unwrap();
+            let notify = |update| self.sender.send(update).unwrap();
             self.trains
                 .iter_mut()
                 .for_each(|train| train.update(sim_dt, &self.block_map, notify));
 
-            self.clock.tick(sim_dt);
-            self.send_update(SimulationUpdate::Tick(self.clock.elapsed_seconds));
-
-            let train_updates = self
-                .trains
-                .iter_mut()
-                .map(|train| train.get_state_update(&self.block_map))
-                .flatten()
-                .collect();
-            self.send_update(SimulationUpdate::TrainStates(self.clock.elapsed_seconds, train_updates));
+            self.clock
+                .tick(sim_dt)
+                .into_iter()
+                .for_each(|payload| match payload.event {
+                    ClockEvent::TrainInfoUpdate => {
+                        let train_updates = self.collect_train_updates();
+                        self.send_update(SimulationUpdate::TrainStates(payload.elapsed_time, train_updates));
+                    }
+                    _ => self.send_update(SimulationUpdate::Clock(payload)),
+                });
         }
         println!("Shutting down simulation");
     }
 
-    fn despawn_train_by_id(&mut self, id: TrainId) {
-        if let Some((pos, ..)) = self.trains.iter().find_position(|x| x.id == id) {
-            self.trains.swap_remove(pos);
-            self.send_update(SimulationUpdate::UnregisterTrain(id));
-        }
+    fn collect_train_updates(&mut self) -> Vec<TrainStatusUpdate> {
+        self.trains
+            .iter_mut()
+            .map(|train| train.get_state_update(&self.block_map))
+            .flatten()
+            .collect()
     }
 
-    pub fn spawn_train(&mut self, spawn_state: TrainSpawnState) {
+    fn spawn_train(&mut self, spawn_state: TrainSpawnState) {
         self.next_id += 1;
         let mut cars: Vec<RailVehicle> = Vec::with_capacity(100);
         cars.extend([RailVehicle::new_locomotive(138_000.0, 18.15, 2250.0, 375.0); 2]);
@@ -134,6 +152,13 @@ impl SimulationState {
             direction,
         });
         self.send_update(update);
+    }
+
+    fn despawn_train_by_id(&mut self, id: TrainId) {
+        if let Some((pos, ..)) = self.trains.iter().find_position(|x| x.id == id) {
+            self.trains.swap_remove(pos);
+            self.send_update(SimulationUpdate::UnregisterTrain(id));
+        }
     }
 }
 
