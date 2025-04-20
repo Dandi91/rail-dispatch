@@ -22,12 +22,6 @@ struct PeriodicEvent {
     event: ClockEvent,
 }
 
-impl PeriodicEvent {
-    fn reset(&mut self) {
-        self.left += self.period;
-    }
-}
-
 pub struct Clock {
     elapsed_seconds: f64,
     start_point: NaiveDateTime,
@@ -89,7 +83,7 @@ impl Clock {
                     elapsed_time: self.elapsed_seconds + fired.left,
                     current_time,
                 });
-                fired.reset();
+                fired.left += fired.period;
 
                 let idx = self.periodic_events.partition_point(|x| x.left < fired.left);
                 self.periodic_events.insert(idx, fired);
