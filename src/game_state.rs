@@ -124,7 +124,7 @@ impl GameState {
 
     pub fn draw(&mut self, d: &mut RaylibDrawHandle, thread: &RaylibThread) {
         match self.ui_state {
-            UIState::Board => self.board.draw(d),
+            UIState::Board => self.board.draw(d, thread),
             UIState::SpeedTable => self.speed_table.draw(d, thread),
         };
         d.draw_text(&self.engine.sim_duration_formatted(), 700, 3, 20, Color::RAYWHITE);
