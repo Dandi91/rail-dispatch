@@ -31,6 +31,7 @@ struct TrainSpeedEntry {
     target_speed_mps: f64,
     controls_percentage: i32,
     // braking_distance_m: f64,
+    updated: bool,
 }
 
 pub struct SpeedTable {
@@ -139,6 +140,7 @@ impl SpeedTable {
                 train.speed_mps = update.speed_mps;
                 train.target_speed_mps = update.target_speed_mps;
                 train.controls_percentage = update.control_percentage;
+                train.updated = true;
             }
         }
 
@@ -152,7 +154,6 @@ impl SpeedTable {
             (norm * TRAIN_GRID_HEIGHT as f64).trunc() as i32 + offset_y + TRAIN_HEADER_HEIGHT
         };
 
-        let font_size = 10;
         let time_x = elapsed_seconds.round() as i32 % max_time_s + X_OFFSET;
         self.trains.iter().enumerate().for_each(|(index, train)| {
             let offset_y = index as i32 * TRAIN_CARD_HEIGHT;
@@ -161,23 +162,34 @@ impl SpeedTable {
 
             self.screen_image.draw_pixel(time_x, target_speed_y, target_speed_color);
             self.screen_image.draw_pixel(time_x, speed_y, speed_color);
-
-            let screen_pos = offset_y + TRAIN_HEADER_HEIGHT + self.scroll.y as i32;
-            if screen_pos >= 0 && screen_pos <= self.view.height as i32 {
-                self.screen_image
-                    .draw_rectangle(X_OFFSET, offset_y, WIDTH, TRAIN_HEADER_HEIGHT, Color::BLANK);
-                let text_y = offset_y + font_size / 2;
-                let train_status_line = format!(
-                    "#{} | next block in {:.3} m | {:.0} km/h | {}%",
-                    &train.number,
-                    train.next_block_m,
-                    train.speed_mps * 3.6,
-                    train.controls_percentage,
-                );
-                self.screen_image
-                    .draw_text(&train_status_line, X_OFFSET, text_y, font_size, Color::BLACK);
-            }
         });
+    }
+
+    fn update_train_labels(&mut self) {
+        let font_size = 10;
+        self.trains
+            .iter_mut()
+            .enumerate()
+            .filter(|(.., train)| train.updated)
+            .for_each(|(index, train)| {
+                let offset_y = index as i32 * TRAIN_CARD_HEIGHT;
+                let screen_pos = offset_y + TRAIN_HEADER_HEIGHT + self.scroll.y as i32;
+                if screen_pos >= 0 && screen_pos <= self.view.height as i32 {
+                    self.screen_image
+                        .draw_rectangle(X_OFFSET, offset_y, WIDTH, TRAIN_HEADER_HEIGHT, Color::BLANK);
+                    let text_y = offset_y + font_size / 2;
+                    let train_status_line = format!(
+                        "#{} | next block in {:.3} m | {:.0} km/h | {}%",
+                        &train.number,
+                        train.next_block_m,
+                        train.speed_mps * 3.6,
+                        train.controls_percentage,
+                    );
+                    self.screen_image
+                        .draw_text(&train_status_line, X_OFFSET, text_y, font_size, Color::BLACK);
+                    train.updated = false;
+                }
+            });
     }
 
     fn generate_time_labels(&mut self, d: &RaylibDrawHandle, now: NaiveDateTime) {
@@ -243,6 +255,7 @@ impl SpeedTable {
         }
 
         self.update_grid_texture(d, thread);
+        self.update_train_labels();
         match self.screen_texture {
             Some(ref mut texture) => {
                 if texture.height != self.height {
