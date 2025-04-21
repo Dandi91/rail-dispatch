@@ -177,8 +177,8 @@ impl SpeedTable {
             .filter(|(.., train)| train.updated)
             .for_each(|(index, train)| {
                 let offset_y = index as i32 * TRAIN_CARD_HEIGHT;
-                let screen_pos = offset_y + TRAIN_HEADER_HEIGHT + self.scroll.y as i32;
-                if screen_pos >= 0 && screen_pos <= self.view.height as i32 {
+                let screen_pos = offset_y + self.scroll.y as i32;
+                if screen_pos + TRAIN_HEADER_HEIGHT >= 0 && screen_pos <= self.view.height as i32 {
                     self.screen_image
                         .draw_rectangle(X_OFFSET, offset_y, WIDTH, TRAIN_HEADER_HEIGHT, Color::BLANK);
                     let text_y = offset_y + font_size / 2;
