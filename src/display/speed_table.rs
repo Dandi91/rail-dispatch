@@ -159,20 +159,24 @@ impl SpeedTable {
             let target_speed_y = speed_to_coord(offset_y, train.target_speed_mps);
             let speed_y = speed_to_coord(offset_y, train.speed_mps);
 
-            self.screen_image
-                .draw_rectangle(0, offset_y, WIDTH, TRAIN_HEADER_HEIGHT, Color::BLANK);
-            let text_y = offset_y + font_size / 2;
-            let train_status_line = format!(
-                "#{} | next block in {:.3} m | {:.0} km/h | {}%",
-                &train.number,
-                train.next_block_m,
-                train.speed_mps * 3.6,
-                train.controls_percentage,
-            );
-            self.screen_image
-                .draw_text(&train_status_line, X_OFFSET, text_y, font_size, Color::BLACK);
             self.screen_image.draw_pixel(time_x, target_speed_y, target_speed_color);
             self.screen_image.draw_pixel(time_x, speed_y, speed_color);
+
+            let screen_pos = offset_y + TRAIN_HEADER_HEIGHT + self.scroll.y as i32;
+            if screen_pos >= 0 && screen_pos <= self.view.height as i32 {
+                self.screen_image
+                    .draw_rectangle(X_OFFSET, offset_y, WIDTH, TRAIN_HEADER_HEIGHT, Color::BLANK);
+                let text_y = offset_y + font_size / 2;
+                let train_status_line = format!(
+                    "#{} | next block in {:.3} m | {:.0} km/h | {}%",
+                    &train.number,
+                    train.next_block_m,
+                    train.speed_mps * 3.6,
+                    train.controls_percentage,
+                );
+                self.screen_image
+                    .draw_text(&train_status_line, X_OFFSET, text_y, font_size, Color::BLACK);
+            }
         });
     }
 

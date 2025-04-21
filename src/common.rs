@@ -3,6 +3,7 @@ use raylib::drawing::{RaylibDraw, RaylibDrawHandle};
 use raylib::texture::Image;
 use serde_repr::Deserialize_repr;
 use std::ops::Neg;
+use std::time::Instant;
 
 pub type TrainId = usize;
 
@@ -45,4 +46,20 @@ pub fn image_draw_text_centered(
 ) {
     let width = d.measure_text(text, font_size);
     image.draw_text(text, x - width / 2, y, font_size, color);
+}
+
+pub struct Profiler {
+    now: Instant,
+}
+
+impl Profiler {
+    pub fn new() -> Self {
+        Profiler { now: Instant::now() }
+    }
+}
+
+impl Drop for Profiler {
+    fn drop(&mut self) {
+        println!("Updates took {}", self.now.elapsed().as_micros());
+    }
 }
