@@ -70,6 +70,7 @@ impl SpeedTable {
         self.trains.push(TrainSpeedEntry {
             id: train.id,
             number: train.number.clone(),
+            updated: true,
             ..TrainSpeedEntry::default()
         });
         self.height += TRAIN_CARD_HEIGHT;
@@ -165,6 +166,9 @@ impl SpeedTable {
         });
     }
 
+    /// Since drawing text takes ages, this is moved into a separate method, which is only called once per frame.
+    /// It draws labels only for the trains that moved since last time (tracked with `TrainSpeedEntry.updated`),
+    /// and only those that are visible in the scroll window at the moment.
     fn update_train_labels(&mut self) {
         let font_size = 10;
         self.trains

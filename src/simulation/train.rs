@@ -164,7 +164,7 @@ impl Train {
             front_position: state.spawn_point,
             back_position: trace.pop().unwrap(),
             target_speed_margin_mps: 0.0,
-            position_updated: false,
+            position_updated: true,
         }
     }
 
