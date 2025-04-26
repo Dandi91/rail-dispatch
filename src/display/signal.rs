@@ -1,12 +1,11 @@
 use crate::common::Direction;
-use crate::display::lamp::LAMP_COLOR_GRAY;
-use crate::level::SignalData;
 use raylib::prelude::*;
 
-const LEG_LENGTH: i32 = 5;
-const WIDTH: i32 = 14;
-const HEIGHT: i32 = 6;
+const LEG_LENGTH: f32 = 5.0;
+const WIDTH: f32 = 14.0;
+const HEIGHT: f32 = 6.0;
 const FONT_SIZE: f32 = 16.5;
+const TEXT_OFFSET: f32 = 4.0;
 
 pub struct TrackSignalCommonState {
     font: Font,
@@ -21,10 +20,10 @@ impl TrackSignalCommonState {
         d.draw_texture_mode(thread, &mut texture, |mut d| {
             d.draw_rectangle_rounded(
                 Rectangle {
-                    x: LEG_LENGTH as f32,
+                    x: LEG_LENGTH,
                     y: 0.0,
-                    width: WIDTH as f32,
-                    height: HEIGHT as f32,
+                    width: WIDTH,
+                    height: HEIGHT,
                 },
                 1.0,
                 4,
@@ -33,21 +32,18 @@ impl TrackSignalCommonState {
             d.draw_line_ex(
                 Vector2 {
                     x: 0.0,
-                    y: (HEIGHT / 2) as f32,
+                    y: HEIGHT / 2.0,
                 },
                 Vector2 {
-                    x: LEG_LENGTH as f32,
-                    y: (HEIGHT / 2) as f32,
+                    x: LEG_LENGTH,
+                    y: HEIGHT / 2.0,
                 },
                 2.0,
                 Color::BLACK,
             );
             d.draw_line_ex(
                 Vector2 { x: 1.0, y: 0.0 },
-                Vector2 {
-                    x: 1.0,
-                    y: HEIGHT as f32,
-                },
+                Vector2 { x: 1.0, y: HEIGHT },
                 1.0,
                 Color::BLACK,
             );
@@ -65,6 +61,39 @@ impl TrackSignalCommonState {
         let font_path = "resources/font/OpirusOpikRegular-RgDv.ttf";
         d.load_font_ex(thread, font_path, 33, Some(&codepoints_string)).unwrap()
     }
+
+    pub fn draw(&self, d: &mut RaylibDrawHandle, x: f32, y: f32, name: &str, direction: Direction) {
+        let x = x - 1.0;
+        let text_size = self.font.measure_text(name, FONT_SIZE, 1.0);
+        let (source_rect, texture_position, text_offset) = match direction {
+            Direction::Even => (
+                Rectangle {
+                    width: WIDTH + LEG_LENGTH,
+                    height: HEIGHT,
+                    ..Default::default()
+                },
+                Vector2 { x: x - LEG_LENGTH, y },
+                -(LEG_LENGTH + TEXT_OFFSET + text_size.x),
+            ),
+            Direction::Odd => (
+                // to flip a texture, use negative source width/height
+                // https://www.reddit.com/r/raylib/comments/nvtyqn/how_do_i_flip_a_texture/
+                Rectangle {
+                    width: -(WIDTH + LEG_LENGTH),
+                    height: HEIGHT,
+                    ..Default::default()
+                },
+                Vector2 { x, y },
+                WIDTH + LEG_LENGTH + TEXT_OFFSET,
+            ),
+        };
+        let text_position = Vector2 {
+            x: x + text_offset,
+            y: y - 5.0,
+        };
+        d.draw_texture_rec(&self.texture, source_rect, texture_position, Color::WHITE);
+        d.draw_text_ex(&self.font, name, text_position, FONT_SIZE, 1.0, Color::BLACK);
+    }
 }
 
 pub type SignalId = usize;
@@ -76,74 +105,4 @@ pub struct TrackSignal {
     texture_position: Vector2,
     lamp_rect: Rectangle,
     text_position: Vector2,
-}
-
-impl TrackSignal {
-    pub fn new(id: SignalId, x: i32, y: i32, name: String, direction: Direction) -> Self {
-        let (source_rect, texture_position, text_offset) = match direction {
-            Direction::Even => (
-                Rectangle {
-                    x: 0.0,
-                    y: 0.0,
-                    width: (WIDTH + LEG_LENGTH) as f32,
-                    height: HEIGHT as f32,
-                },
-                Vector2 {
-                    x: (x - LEG_LENGTH - 1) as f32,
-                    y: (y - 1) as f32,
-                },
-                -(LEG_LENGTH + 10 + 3), // TODO: take text width into account
-            ),
-            Direction::Odd => (
-                // to flip a texture, use negative source width/height
-                // https://www.reddit.com/r/raylib/comments/nvtyqn/how_do_i_flip_a_texture/
-                Rectangle {
-                    x: 0.0,
-                    y: 0.0,
-                    width: -(WIDTH + LEG_LENGTH) as f32,
-                    height: HEIGHT as f32,
-                },
-                Vector2 {
-                    x: (x - 1) as f32,
-                    y: (y - 1) as f32,
-                },
-                WIDTH + LEG_LENGTH + 3,
-            ),
-        };
-        TrackSignal {
-            id,
-            name,
-            source_rect,
-            texture_position,
-            lamp_rect: Rectangle {
-                x: x as f32,
-                y: y as f32,
-                width: (WIDTH - 2) as f32,
-                height: (HEIGHT - 2) as f32,
-            },
-            text_position: Vector2 {
-                x: (x + text_offset) as f32,
-                y: (y - 6) as f32,
-            },
-        }
-    }
-
-    pub fn draw(&self, d: &mut RaylibDrawHandle, common: &TrackSignalCommonState) {
-        d.draw_texture_rec(&common.texture, &self.source_rect, &self.texture_position, Color::WHITE);
-        d.draw_rectangle_rounded(&self.lamp_rect, 1.0, 4, LAMP_COLOR_GRAY);
-        d.draw_text_ex(
-            &common.font,
-            &self.name,
-            &self.text_position,
-            FONT_SIZE,
-            1.0,
-            Color::BLACK,
-        );
-    }
-}
-
-impl From<SignalData> for TrackSignal {
-    fn from(data: SignalData) -> Self {
-        TrackSignal::new(data.id, data.x, data.y, data.name, data.direction)
-    }
 }

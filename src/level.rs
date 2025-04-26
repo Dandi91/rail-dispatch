@@ -28,8 +28,9 @@ pub struct ConnectionData {
 #[derive(Deserialize, Clone)]
 pub struct SignalData {
     pub id: usize,
-    pub x: i32,
-    pub y: i32,
+    pub lamp_id: usize,
+    pub block_id: usize,
+    pub offset_m: f64,
     pub name: String,
     pub direction: Direction,
 }

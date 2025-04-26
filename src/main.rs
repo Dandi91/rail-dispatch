@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 mod clock;
 mod common;
 mod consts;
@@ -12,10 +14,11 @@ use raylib::prelude::*;
 
 fn main() {
     let title = "Rail Dispatch";
-    let (mut rl, thread) = init().size(1024, 960).title(title).resizable().build();
+    let (width, height) = (1024, 960);
+    let (mut rl, thread) = init().size(width, height).title(title).resizable().build();
     rl.set_target_fps(60);
 
-    let mut state = GameState::new();
+    let mut state = GameState::new(width as u32, height as u32);
     state.start_game();
 
     while !rl.window_should_close() {

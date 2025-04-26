@@ -1,7 +1,7 @@
 use raylib::prelude::*;
 use serde::Deserialize;
 
-const DEFAULT_LAMP_HEIGHT: f32 = 6.0;
+const DEFAULT_LAMP_HEIGHT: f32 = 4.0;
 
 fn default_lamp_height() -> f32 {
     DEFAULT_LAMP_HEIGHT
@@ -52,7 +52,7 @@ impl Lamp {
 
     pub fn draw(&self, d: &mut RaylibDrawHandle, flash_state: bool) {
         d.draw_rectangle_rounded(
-            Rectangle::new(self.x, self.y + 1.0, self.width, self.height - 2.0),
+            Rectangle::new(self.x, self.y + 1.0, self.width, self.height),
             1.0,
             4,
             self.get_color(flash_state),

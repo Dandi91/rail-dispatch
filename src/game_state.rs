@@ -27,12 +27,12 @@ pub struct GameState {
 }
 
 impl GameState {
-    pub fn new() -> GameState {
+    pub fn new(width: u32, height: u32) -> GameState {
         let level = Level::load_from_file("resources/level.toml");
         GameState {
             ui_state: UIState::Board,
             engine: Engine::new(&level),
-            board: DisplayBoard::new(&level),
+            board: DisplayBoard::new(&level, width, height),
             speed_table: SpeedTable::new(),
             trains: Vec::new(),
         }

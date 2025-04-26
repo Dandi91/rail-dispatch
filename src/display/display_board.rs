@@ -1,8 +1,8 @@
 use crate::common::draw_text_centered;
 use crate::consts::TRACK_WIDTH;
 use crate::display::lamp::{LAMP_COLOR_GRAY, LAMP_COLOR_RED, Lamp, LampState};
-use crate::display::signal::{TrackSignal, TrackSignalCommonState};
-use crate::level::Level;
+use crate::display::signal::TrackSignalCommonState;
+use crate::level::{Level, SignalData};
 use crate::simulation::block::BlockId;
 use chrono::NaiveDateTime;
 use raylib::prelude::*;
@@ -13,19 +13,38 @@ const FLASH_INTERVAL: f64 = 0.65;
 
 pub struct DisplayBoard {
     current_time: String,
-    signal_common: Option<TrackSignalCommonState>,
+    width: u32,
+    height: u32,
+    board_texture: Option<RenderTexture2D>,
     lamps: HashMap<usize, Lamp>,
-    signals: HashMap<usize, TrackSignal>,
+    signals: HashMap<usize, SignalData>,
 }
 
 impl DisplayBoard {
-    pub fn new(level: &Level) -> Self {
+    pub fn new(level: &Level, width: u32, height: u32) -> Self {
         DisplayBoard {
             current_time: String::default(),
-            signal_common: None,
+            width,
+            height,
+            board_texture: None,
             lamps: level.lamps.iter().cloned().map(|l| (l.id, l)).collect(),
-            signals: level.signals.iter().cloned().map(|sig| (sig.id, sig.into())).collect(),
+            signals: level.signals.iter().cloned().map(|sig| (sig.id, sig)).collect(),
         }
+    }
+
+    fn generate_board_texture(&self, d: &mut RaylibDrawHandle, thread: &RaylibThread) -> RenderTexture2D {
+        let mut texture = d.load_render_texture(thread, self.width, self.height).unwrap();
+        let signals = TrackSignalCommonState::new(d, thread);
+
+        d.draw_texture_mode(thread, &mut texture, |mut d| {
+            d.draw_rectangle(0, 50, 300, TRACK_WIDTH, Color::BLACK);
+            for signal in self.signals.values() {
+                let lamp = self.lamps.get(&signal.lamp_id).unwrap();
+                signals.draw(&mut d, lamp.x, lamp.y, &signal.name, signal.direction);
+            }
+        });
+
+        texture
     }
 
     pub fn clock_update(&mut self, current_time: NaiveDateTime) {
@@ -34,30 +53,36 @@ impl DisplayBoard {
 
     pub fn process_update(&mut self, block_id: BlockId, new_state: bool) {
         if let Some(lamp) = self.lamps.get_mut(&block_id) {
-            if new_state {
-                lamp.state = LampState::ON(LAMP_COLOR_RED);
+            lamp.state = if new_state {
+                LampState::ON(LAMP_COLOR_RED)
             } else {
-                lamp.state = LampState::OFF(LAMP_COLOR_GRAY);
+                LampState::OFF(LAMP_COLOR_GRAY)
             }
         }
     }
 
     pub fn draw(&mut self, d: &mut RaylibDrawHandle, thread: &RaylibThread) {
-        if self.signal_common.is_none() {
-            self.signal_common = Some(TrackSignalCommonState::new(d, thread));
+        if self.board_texture.is_none() {
+            self.board_texture = self.generate_board_texture(d, thread).into();
         }
+        let texture = self.board_texture.as_ref().unwrap();
 
         d.clear_background(BOARD_BACKGROUND);
+        d.draw_texture_rec(
+            texture,
+            Rectangle {
+                width: texture.width() as f32,
+                height: -texture.height() as f32,
+                ..Default::default()
+            },
+            Vector2::default(),
+            Color::WHITE,
+        );
         draw_text_centered(d, &self.current_time, d.get_screen_width() / 2, 3, 20, Color::RAYWHITE);
 
-        d.draw_rectangle(0, 50, 300, TRACK_WIDTH, Color::BLACK);
         let flash_state = (d.get_time() / FLASH_INTERVAL) as i32 % 2 > 0;
         for lamp in self.lamps.values() {
             lamp.draw(d, flash_state);
-        }
-
-        for signal in self.signals.values() {
-            signal.draw(d, self.signal_common.as_ref().unwrap());
         }
     }
 }
