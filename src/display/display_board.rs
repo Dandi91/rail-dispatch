@@ -1,9 +1,8 @@
 use crate::common::draw_text_centered;
 use crate::consts::TRACK_WIDTH;
-use crate::display::lamp::{LAMP_COLOR_GRAY, LAMP_COLOR_RED, Lamp, LampState};
+use crate::display::lamp::{LAMP_COLOR_GRAY, LAMP_COLOR_RED, Lamp, LampId, LampState};
 use crate::display::signal::TrackSignalCommonState;
 use crate::level::{Level, SignalData};
-use crate::simulation::block::BlockId;
 use chrono::NaiveDateTime;
 use raylib::prelude::*;
 use std::collections::HashMap;
@@ -16,7 +15,7 @@ pub struct DisplayBoard {
     width: u32,
     height: u32,
     board_texture: Option<RenderTexture2D>,
-    lamps: HashMap<usize, Lamp>,
+    lamps: HashMap<LampId, Lamp>,
     signals: HashMap<usize, SignalData>,
 }
 
@@ -51,8 +50,8 @@ impl DisplayBoard {
         self.current_time = current_time.format("%H:%M:%S").to_string();
     }
 
-    pub fn process_update(&mut self, block_id: BlockId, new_state: bool) {
-        if let Some(lamp) = self.lamps.get_mut(&block_id) {
+    pub fn process_update(&mut self, lamp_id: LampId, new_state: bool) {
+        if let Some(lamp) = self.lamps.get_mut(&lamp_id) {
             lamp.state = if new_state {
                 LampState::ON(LAMP_COLOR_RED)
             } else {

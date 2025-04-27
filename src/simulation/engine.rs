@@ -106,10 +106,8 @@ impl SimulationState {
 
             self.block_map
                 .process_updates(&mut self.block_updates)
-                .for_each(|(block_id, state)| {
-                    self.sender
-                        .send(SimulationUpdate::BlockOccupation(block_id, state))
-                        .unwrap();
+                .for_each(|(lamp_id, state)| {
+                    self.sender.send(SimulationUpdate::LampState(lamp_id, state)).unwrap();
                 });
 
             self.clock
@@ -126,6 +124,7 @@ impl SimulationState {
                 });
         }
         println!("Shutting down simulation");
+        println!("Block updates capacity: {}", self.block_updates.get_capacity())
     }
 
     fn collect_train_updates(&mut self) -> Vec<TrainStatusUpdate> {

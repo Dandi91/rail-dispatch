@@ -1,4 +1,5 @@
 use crate::common::{Direction, TrainId};
+use crate::display::lamp::LampId;
 use crate::level::{BlockData, Level, SignalData};
 use itertools::Itertools;
 use std::collections::{HashMap, VecDeque};
@@ -72,7 +73,7 @@ impl BlockMap {
         Some(self.get_block_by_id(&next).expect("block not found"))
     }
 
-    pub fn process_updates(&mut self, updates: &mut BlockUpdateQueue) -> impl Iterator<Item = (BlockId, bool)> {
+    pub fn process_updates(&mut self, updates: &mut BlockUpdateQueue) -> impl Iterator<Item = (LampId, bool)> {
         updates
             .0
             .drain(..)
@@ -81,14 +82,16 @@ impl BlockMap {
                 if u.state {
                     vec.push(u.train_id);
                     if vec.len() == 1 {
-                        Some((u.block_id, u.state))
+                        let block = self.get_block_by_id(&u.block_id).unwrap();
+                        Some((block.lamp_id, u.state))
                     } else {
                         None
                     }
                 } else {
                     vec.retain(|&x| x != u.train_id);
                     if vec.is_empty() {
-                        Some((u.block_id, u.state))
+                        let block = self.get_block_by_id(&u.block_id).unwrap();
+                        Some((block.lamp_id, u.state))
                     } else {
                         None
                     }
@@ -188,6 +191,10 @@ impl BlockUpdateQueue {
             train_id,
             state: false,
         });
+    }
+
+    pub fn get_capacity(&self) -> usize {
+        self.0.capacity()
     }
 }
 

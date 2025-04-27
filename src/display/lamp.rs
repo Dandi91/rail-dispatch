@@ -25,7 +25,7 @@ pub enum LampState {
 
 #[derive(Deserialize, Clone)]
 pub struct Lamp {
-    pub id: usize,
+    pub id: LampId,
     pub x: f32,
     pub y: f32,
     pub width: f32,
@@ -35,6 +35,8 @@ pub struct Lamp {
     #[serde(skip)]
     pub state: LampState,
 }
+
+pub type LampId = usize;
 
 impl Lamp {
     fn get_color(&self, flash_state: bool) -> Color {

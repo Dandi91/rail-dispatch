@@ -1,7 +1,7 @@
 use crate::clock::ClockPayload;
 use crate::common::TrainId;
+use crate::display::lamp::LampId;
 use crate::display::train::TrainDisplayState;
-use crate::simulation::block::BlockId;
 use crate::simulation::train::{TrainSpawnState, TrainStatusUpdate};
 
 pub enum Command {
@@ -14,7 +14,7 @@ pub enum Command {
 pub enum SimulationUpdate {
     Clock(ClockPayload),
     TrainStates(f64, Vec<TrainStatusUpdate>),
-    BlockOccupation(BlockId, bool),
+    LampState(LampId, bool),
     RegisterTrain(TrainDisplayState),
     UnregisterTrain(TrainId),
 }

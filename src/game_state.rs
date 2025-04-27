@@ -68,9 +68,8 @@ impl GameState {
                     SimulationUpdate::TrainStates(time, updates) => {
                         self.speed_table.update(time, &updates);
                     }
-                    SimulationUpdate::BlockOccupation(block_id, state) => {
-                        println!("Block {} occupied({})", block_id, state);
-                        self.board.process_update(block_id, state);
+                    SimulationUpdate::LampState(lamp_id, state) => {
+                        self.board.process_update(lamp_id, state);
                     }
                     SimulationUpdate::Clock(payload) => match payload.event {
                         ClockEvent::SpeedTableTailClean => self.speed_table.cleanup_tail(),
