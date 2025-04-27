@@ -62,7 +62,7 @@ impl GameState {
                         if let Some((pos, train)) = found {
                             println!("Train {} despawned with ID {}", train.number, train.id);
                             self.speed_table.unregister_train(id);
-                            self.trains.swap_remove(pos);
+                            self.trains.remove(pos);
                         }
                     }
                     SimulationUpdate::TrainStates(time, updates) => {

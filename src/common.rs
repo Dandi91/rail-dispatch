@@ -7,9 +7,10 @@ use std::time::Instant;
 
 pub type TrainId = usize;
 
-#[derive(Deserialize_repr, PartialEq, Copy, Clone)]
+#[derive(Deserialize_repr, PartialEq, Copy, Clone, Default, Debug, Hash, Eq)]
 #[repr(i8)]
 pub enum Direction {
+    #[default]
     Even = 1,
     Odd = -1,
 }
