@@ -60,10 +60,6 @@ impl SimulationState {
         }
     }
 
-    fn send_update(&self, update: SimulationUpdate) {
-        self.sender.send(update).unwrap();
-    }
-
     fn consume_events(&mut self) -> bool {
         loop {
             match self.receiver.try_recv() {
@@ -111,7 +107,9 @@ impl SimulationState {
             self.block_map
                 .process_updates(&mut self.block_updates)
                 .for_each(|(block_id, state)| {
-                    self.sender.send(SimulationUpdate::BlockOccupation(block_id, state)).unwrap();
+                    self.sender
+                        .send(SimulationUpdate::BlockOccupation(block_id, state))
+                        .unwrap();
                 });
 
             self.clock
@@ -120,9 +118,11 @@ impl SimulationState {
                 .for_each(|payload| match payload.event {
                     ClockEvent::TrainInfoUpdate => {
                         let train_updates = self.collect_train_updates();
-                        self.send_update(SimulationUpdate::TrainStates(payload.elapsed_time, train_updates));
+                        self.sender
+                            .send(SimulationUpdate::TrainStates(payload.elapsed_time, train_updates))
+                            .unwrap();
                     }
-                    _ => self.send_update(SimulationUpdate::Clock(payload)),
+                    _ => self.sender.send(SimulationUpdate::Clock(payload)).unwrap(),
                 });
         }
         println!("Shutting down simulation");
@@ -160,14 +160,14 @@ impl SimulationState {
             number,
             direction,
         });
-        self.send_update(update);
+        self.sender.send(update).unwrap();
     }
 
     fn despawn_train_by_id(&mut self, id: TrainId) {
         if let Some((pos, ..)) = self.trains.iter().find_position(|x| x.id == id) {
             let train = self.trains.swap_remove(pos);
             train.despawn(&mut self.block_updates);
-            self.send_update(SimulationUpdate::UnregisterTrain(id));
+            self.sender.send(SimulationUpdate::UnregisterTrain(id)).unwrap();
         }
     }
 }
