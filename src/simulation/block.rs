@@ -72,7 +72,7 @@ impl BlockMap {
         Some(self.get_block_by_id(&next).expect("block not found"))
     }
 
-    pub fn process_updates(&mut self, updates: &mut BlockUpdateQueue) -> Vec<(BlockId, bool)> {
+    pub fn process_updates(&mut self, updates: &mut BlockUpdateQueue) -> impl Iterator<Item = (BlockId, bool)> {
         updates
             .0
             .drain(..)
@@ -95,7 +95,6 @@ impl BlockMap {
                 }
             })
             .flatten()
-            .collect()
     }
 
     pub fn from_level(level: &Level) -> Self {

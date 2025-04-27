@@ -110,9 +110,8 @@ impl SimulationState {
 
             self.block_map
                 .process_updates(&mut self.block_updates)
-                .into_iter()
                 .for_each(|(block_id, state)| {
-                    self.send_update(SimulationUpdate::BlockOccupation(block_id, state));
+                    self.sender.send(SimulationUpdate::BlockOccupation(block_id, state)).unwrap();
                 });
 
             self.clock

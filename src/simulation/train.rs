@@ -168,9 +168,11 @@ impl Train {
     }
 
     pub fn despawn(&self, block_updates: &mut BlockUpdateQueue) {
-        self.occupied_blocks.iter().for_each(|&block_id| block_updates.freed(block_id, self.id))
+        self.occupied_blocks
+            .iter()
+            .for_each(|&block_id| block_updates.freed(block_id, self.id))
     }
-    
+
     pub fn set_target_speed_kmh(&mut self, speed_kmh: f64) {
         self.target_speed_margin_mps = rand::random::<f64>() * 0.5 + 0.35;
         self.target_speed_mps = speed_kmh / 3.6
