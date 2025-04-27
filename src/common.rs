@@ -53,6 +53,7 @@ pub struct Profiler {
 }
 
 impl Profiler {
+    #![allow(dead_code)]
     pub fn new() -> Self {
         Profiler { now: Instant::now() }
     }

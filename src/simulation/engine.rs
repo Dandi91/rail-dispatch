@@ -4,14 +4,14 @@ use crate::display::speed_table::KEEP_TAIL_S;
 use crate::display::train::{TrainDisplayState, TrainKind};
 use crate::event::{Command, SimulationUpdate};
 use crate::level::Level;
-use crate::simulation::block::{BlockMap, TrackPoint};
+use crate::simulation::block::{BlockMap, BlockUpdateQueue, TrackPoint};
 use crate::simulation::train::{RailVehicle, Train, TrainSpawnState, TrainStatusUpdate};
 use atomic_float::AtomicF64;
 use chrono::{TimeDelta, Timelike};
 use itertools::Itertools;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
-use std::sync::{Arc, mpsc};
+use std::sync::{mpsc, Arc};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -29,6 +29,7 @@ struct SimulationState {
     clock: Clock,
     block_map: BlockMap,
     trains: Vec<Train>,
+    block_updates: BlockUpdateQueue,
 }
 
 impl SimulationState {
@@ -55,11 +56,8 @@ impl SimulationState {
             clock,
             block_map: init.block_map,
             trains: Vec::new(),
+            block_updates: BlockUpdateQueue::with_capacity(8),
         }
-    }
-
-    fn send_closure(&self) -> impl Fn(SimulationUpdate) {
-        |update| self.sender.send(update).unwrap()
     }
 
     fn send_update(&self, update: SimulationUpdate) {
@@ -106,10 +104,16 @@ impl SimulationState {
             last_wake = this_wake;
 
             // run simulation based on the actual dt
-            let notify = |update| self.sender.send(update).unwrap();
             self.trains
                 .iter_mut()
-                .for_each(|train| train.update(sim_dt, &self.block_map, notify));
+                .for_each(|train| train.update(sim_dt, &self.block_map, &mut self.block_updates));
+
+            self.block_map
+                .process_updates(&mut self.block_updates)
+                .into_iter()
+                .for_each(|(block_id, state)| {
+                    self.send_update(SimulationUpdate::BlockOccupation(block_id, state));
+                });
 
             self.clock
                 .tick(sim_dt)
@@ -140,8 +144,14 @@ impl SimulationState {
         cars.extend([RailVehicle::new_car(30_000.0, 15.0, 70_000.0); 75]);
 
         let direction = spawn_state.direction;
-        let mut train = Train::spawn_at(self.next_id, spawn_state, cars, &self.block_map, self.send_closure());
-        train.set_target_speed_kmh(0.0);
+        let mut train = Train::spawn_at(
+            self.next_id,
+            spawn_state,
+            cars,
+            &self.block_map,
+            &mut self.block_updates,
+        );
+        train.set_target_speed_kmh(80.0);
         self.trains.push(train);
 
         let number = rand::random_range(1000..=9999).to_string();
@@ -156,7 +166,8 @@ impl SimulationState {
 
     fn despawn_train_by_id(&mut self, id: TrainId) {
         if let Some((pos, ..)) = self.trains.iter().find_position(|x| x.id == id) {
-            self.trains.swap_remove(pos);
+            let train = self.trains.swap_remove(pos);
+            train.despawn(&mut self.block_updates);
             self.send_update(SimulationUpdate::UnregisterTrain(id));
         }
     }

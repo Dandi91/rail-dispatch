@@ -95,14 +95,3 @@ impl TrackSignalCommonState {
         d.draw_text_ex(&self.font, name, text_position, FONT_SIZE, 1.0, Color::BLACK);
     }
 }
-
-pub type SignalId = usize;
-
-pub struct TrackSignal {
-    id: SignalId,
-    name: String,
-    source_rect: Rectangle,
-    texture_position: Vector2,
-    lamp_rect: Rectangle,
-    text_position: Vector2,
-}

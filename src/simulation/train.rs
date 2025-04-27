@@ -1,6 +1,5 @@
 use crate::common::{Direction, TrainId};
-use crate::event::SimulationUpdate;
-use crate::simulation::block::{BlockId, BlockMap, TrackPoint};
+use crate::simulation::block::{BlockId, BlockMap, BlockUpdateQueue, TrackPoint};
 use std::collections::VecDeque;
 
 #[derive(Default)]
@@ -138,7 +137,7 @@ impl Train {
         state: TrainSpawnState,
         rail_vehicles: Vec<RailVehicle>,
         block_map: &BlockMap,
-        notify: impl Fn(SimulationUpdate),
+        block_updates: &mut BlockUpdateQueue,
     ) -> Self {
         let stats = get_train_stats(&rail_vehicles);
         let mut trace: Vec<TrackPoint> = state
@@ -149,7 +148,7 @@ impl Train {
         occupied
             .iter()
             .cloned()
-            .for_each(|id| notify(SimulationUpdate::BlockOccupation(id, true)));
+            .for_each(|block_id| block_updates.occupied(block_id, id));
 
         Train {
             id,
@@ -168,6 +167,10 @@ impl Train {
         }
     }
 
+    pub fn despawn(&self, block_updates: &mut BlockUpdateQueue) {
+        self.occupied_blocks.iter().for_each(|&block_id| block_updates.freed(block_id, self.id))
+    }
+    
     pub fn set_target_speed_kmh(&mut self, speed_kmh: f64) {
         self.target_speed_margin_mps = rand::random::<f64>() * 0.5 + 0.35;
         self.target_speed_mps = speed_kmh / 3.6
@@ -216,7 +219,7 @@ impl Train {
         0.0f64.max((speed_diff_mps * speed_sum) / (2.0 * deceleration_mps2))
     }
 
-    pub fn update(&mut self, dt: f64, map: &BlockMap, notify: impl Fn(SimulationUpdate)) {
+    pub fn update(&mut self, dt: f64, map: &BlockMap, block_updates: &mut BlockUpdateQueue) {
         if dt <= 0.0 {
             return;
         }
@@ -247,7 +250,7 @@ impl Train {
         if dx > 0.0 {
             let new_front = self.front_position.step_by(dx, self.direction, map);
             if self.front_position.block_id != new_front.block_id {
-                notify(SimulationUpdate::BlockOccupation(new_front.block_id, true));
+                block_updates.occupied(new_front.block_id, self.id);
                 self.occupied_blocks.push_front(new_front.block_id);
             }
             let new_back = self
@@ -255,7 +258,7 @@ impl Train {
                 .step_by(self.stats.length_m, self.direction.reverse(), map);
             if self.back_position.block_id != new_back.block_id {
                 let freed = self.occupied_blocks.pop_back().unwrap();
-                notify(SimulationUpdate::BlockOccupation(freed, false));
+                block_updates.freed(freed, self.id);
             }
             self.front_position = new_front;
             self.back_position = new_back;

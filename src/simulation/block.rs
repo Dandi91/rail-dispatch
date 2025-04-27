@@ -1,13 +1,17 @@
-use crate::common::Direction;
-use crate::level::{BlockData, Level};
+use crate::common::{Direction, TrainId};
+use crate::level::{BlockData, Level, SignalData};
 use itertools::Itertools;
+use std::collections::{HashMap, VecDeque};
 
 pub type BlockId = usize;
+pub type SignalId = usize;
 
 #[derive(Default)]
 pub struct BlockMap {
     chunks: Vec<(BlockId, usize)>,
     blocks: Vec<Block>,
+    signals: Vec<TrackSignal>,
+    occupied_blocks: HashMap<BlockId, Vec<TrainId>>,
 }
 
 impl BlockMap {
@@ -68,8 +72,34 @@ impl BlockMap {
         Some(self.get_block_by_id(&next).expect("block not found"))
     }
 
+    pub fn process_updates(&mut self, updates: &mut BlockUpdateQueue) -> Vec<(BlockId, bool)> {
+        updates
+            .0
+            .drain(..)
+            .map(|u| {
+                let vec = self.occupied_blocks.entry(u.block_id).or_insert(Vec::with_capacity(1));
+                if u.state {
+                    vec.push(u.train_id);
+                    if vec.len() == 1 {
+                        Some((u.block_id, u.state))
+                    } else {
+                        None
+                    }
+                } else {
+                    vec.retain(|&x| x != u.train_id);
+                    if vec.is_empty() {
+                        Some((u.block_id, u.state))
+                    } else {
+                        None
+                    }
+                }
+            })
+            .flatten()
+            .collect()
+    }
+
     pub fn from_level(level: &Level) -> Self {
-        let mut map = Self::from_iterable(&level.blocks);
+        let mut map = Self::from_iterable(&level.blocks, &level.signals);
         for conn in &level.connections {
             let start = map.get_block_by_id_mut(&conn.start).expect("block not found");
             start.next = Some(conn.end);
@@ -79,7 +109,12 @@ impl BlockMap {
         map
     }
 
-    pub fn from_iterable<'a, I: IntoIterator<Item = &'a BlockData>>(block_data: I) -> Self {
+    pub fn from_iterable<'a, I, J>(block_data: I, signal_data: J) -> Self
+    where
+        I: IntoIterator<Item = &'a BlockData>,
+        J: IntoIterator<Item = &'a SignalData>,
+    {
+        let signals: Vec<TrackSignal> = signal_data.into_iter().map_into().collect();
         let mut blocks: Vec<Block> = block_data.into_iter().map_into().collect();
         blocks.sort_by(|a, b| a.id.cmp(&b.id));
 
@@ -94,7 +129,12 @@ impl BlockMap {
                 .map(|(_, b)| (b.1, b.0)),
         );
 
-        BlockMap { chunks, blocks }
+        BlockMap {
+            chunks,
+            blocks,
+            signals,
+            ..Default::default()
+        }
     }
 }
 
@@ -119,6 +159,55 @@ impl From<&BlockData> for Block {
     }
 }
 
+struct BlockUpdate {
+    block_id: BlockId,
+    train_id: TrainId,
+    state: bool,
+}
+
+pub struct BlockUpdateQueue(VecDeque<BlockUpdate>);
+impl BlockUpdateQueue {
+    pub fn new() -> Self {
+        BlockUpdateQueue(VecDeque::new())
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        BlockUpdateQueue(VecDeque::with_capacity(capacity))
+    }
+
+    pub fn occupied(&mut self, block_id: BlockId, train_id: TrainId) {
+        self.0.push_back(BlockUpdate {
+            block_id,
+            train_id,
+            state: true,
+        });
+    }
+
+    pub fn freed(&mut self, block_id: BlockId, train_id: TrainId) {
+        self.0.push_back(BlockUpdate {
+            block_id,
+            train_id,
+            state: false,
+        });
+    }
+}
+
+pub struct TrackSignal {
+    id: SignalId,
+    block_id: SignalId,
+    offset_m: f64,
+}
+
+impl From<&SignalData> for TrackSignal {
+    fn from(value: &SignalData) -> Self {
+        TrackSignal {
+            id: value.id,
+            block_id: value.block_id,
+            offset_m: value.offset_m,
+        }
+    }
+}
+
 #[derive(PartialEq, Clone)]
 pub struct TrackPoint {
     pub block_id: BlockId,
@@ -131,6 +220,12 @@ impl TrackPoint {
         self.walk(length_m, direction, map)
             .last()
             .expect("expected non-zero length")
+    }
+
+    /// Tries to find a signal in the `direction` along the track,
+    /// returning tuple of signal and distance to it, or `None` if no signal is found
+    pub fn lookup_signal(&self, direction: Direction, map: &BlockMap) -> (&TrackSignal, f64) {
+        todo!()
     }
 
     pub fn walk<'a>(&self, length_m: f64, direction: Direction, map: &'a BlockMap) -> TrackWalker<'a> {
@@ -201,7 +296,7 @@ mod tests {
             id: x,
             ..Default::default()
         });
-        let block_map = BlockMap::from_iterable(&block_data);
+        let block_map = BlockMap::from_iterable(&block_data, []);
         assert_eq!(block_map.blocks.len(), 10);
         assert_eq!(block_map.chunks.len(), 5);
         assert_eq!(block_map.chunks[0], (1, 0));
@@ -250,6 +345,7 @@ mod tests {
         BlockMap {
             chunks: vec![(1, 0)],
             blocks: blocks.into_iter().collect(),
+            ..Default::default()
         }
     }
 
