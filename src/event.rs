@@ -13,6 +13,7 @@ pub enum Command {
 
 pub enum SimulationUpdate {
     Clock(ClockPayload),
+    SimDuration(f64),
     TrainStates(f64, Vec<TrainStatusUpdate>),
     LampState(LampId, bool),
     RegisterTrain(TrainDisplayState),

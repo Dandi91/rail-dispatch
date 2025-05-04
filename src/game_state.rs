@@ -18,6 +18,7 @@ const DEFAULT_UI_STATE: UIState = UIState::Board;
 
 pub struct GameState {
     // UI
+    sim_duration: f64,
     ui_state: UIState,
     board: DisplayBoard,
     speed_table: SpeedTable,
@@ -30,6 +31,7 @@ impl GameState {
     pub fn new(width: u32, height: u32) -> GameState {
         let level = Level::load_from_file("resources/level.toml");
         GameState {
+            sim_duration: 0.0,
             ui_state: UIState::Board,
             engine: Engine::new(&level),
             board: DisplayBoard::new(&level, width, height),
@@ -77,6 +79,9 @@ impl GameState {
                         ClockEvent::ClockUpdate => self.board.clock_update(payload.current_time),
                         _ => {}
                     },
+                    SimulationUpdate::SimDuration(duration) => {
+                        self.sim_duration = duration;
+                    }
                 },
                 Err(err) => {
                     match err {
@@ -126,7 +131,11 @@ impl GameState {
             UIState::Board => self.board.draw(d, thread),
             UIState::SpeedTable => self.speed_table.draw(d, thread),
         };
-        d.draw_text(&self.engine.sim_duration_formatted(), 700, 3, 20, Color::RAYWHITE);
+        d.draw_text(&self.sim_duration_formatted(), 700, 3, 20, Color::RAYWHITE);
         d.draw_text(&self.engine.time_scale_formatted(), 800, 3, 20, Color::RAYWHITE);
+    }
+
+    fn sim_duration_formatted(&self) -> String {
+        format!("{:5} us", (self.sim_duration * 1_000_000.0) as u32)
     }
 }

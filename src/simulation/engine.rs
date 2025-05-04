@@ -6,12 +6,10 @@ use crate::event::{Command, SimulationUpdate};
 use crate::level::Level;
 use crate::simulation::block::{BlockMap, BlockUpdateQueue, TrackPoint};
 use crate::simulation::train::{RailVehicle, Train, TrainSpawnState, TrainStatusUpdate};
-use atomic_float::AtomicF64;
 use chrono::{TimeDelta, Timelike};
 use itertools::Itertools;
-use std::sync::atomic::Ordering;
+use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
-use std::sync::{Arc, mpsc};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -82,12 +80,14 @@ impl SimulationState {
         }
     }
 
-    fn simulate(&mut self, sim_duration: Arc<AtomicF64>) {
+    fn simulate(&mut self) {
         let mut last_wake = Instant::now();
         while self.consume_events() {
             // compute simulation duration since last wake
             let duration = Instant::now().duration_since(last_wake);
-            sim_duration.store(duration.as_secs_f64(), Ordering::Relaxed);
+            self.sender
+                .send(SimulationUpdate::SimDuration(duration.as_secs_f64()))
+                .unwrap();
 
             // compute necessary dt to sleep
             let dt = Duration::from_secs_f64(UNIT_DT / self.time_scale);
@@ -182,7 +182,6 @@ pub struct Engine {
     time_scale: f64,
     sender: Sender<Command>,
     receiver: Receiver<SimulationUpdate>,
-    sim_duration: Arc<AtomicF64>,
     thread_init_state: Option<ThreadInitState>,
     thread: Option<JoinHandle<()>>,
 }
@@ -196,7 +195,6 @@ impl Engine {
             time_scale: MULTIPLIERS[DEFAULT_MULTIPLIER_INDEX],
             sender: cmd_tx,
             receiver: sim_rx,
-            sim_duration: Arc::new(AtomicF64::default()),
             thread_init_state: Some(ThreadInitState {
                 block_map: BlockMap::from_level(level),
                 receiver: cmd_rx,
@@ -254,19 +252,13 @@ impl Engine {
         }
     }
 
-    pub fn sim_duration_formatted(&self) -> String {
-        let sim_duration = self.sim_duration.load(Ordering::Relaxed);
-        format!("{:5} us", (sim_duration * 1_000_000.0) as u32)
-    }
-
     pub fn start(&mut self) {
         if self.thread.is_none() {
-            let sim_duration = self.sim_duration.clone();
             let init = self.thread_init_state.take().unwrap();
             self.thread = Some(
                 thread::Builder::new()
                     .name("SimThread".into())
-                    .spawn(move || SimulationState::new(init).simulate(sim_duration))
+                    .spawn(move || SimulationState::new(init).simulate())
                     .unwrap(),
             );
         }
