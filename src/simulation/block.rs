@@ -208,7 +208,7 @@ pub struct TrackSignal {
     offset_m: f64,
     lamp_id: LampId,
     direction: Direction,
-    allowed_speed: f64,
+    allowed_speed_kmh: f64,
 }
 
 impl From<&SignalData> for TrackSignal {
@@ -219,8 +219,15 @@ impl From<&SignalData> for TrackSignal {
             offset_m: value.offset_m,
             lamp_id: value.lamp_id,
             direction: value.direction,
+            allowed_speed_kmh: 0.0,
             ..Default::default()
         }
+    }
+}
+
+impl TrackSignal {
+    pub fn get_allowed_speed_mps(&self) -> f64 {
+        self.allowed_speed_kmh / 3.6
     }
 }
 
@@ -251,17 +258,17 @@ impl TrackPoint {
     pub fn lookup_signal<'a>(&self, direction: Direction, map: &'a BlockMap) -> (&'a TrackSignal, f64) {
         let reversed = direction.reverse();
         let mut length = -map.get_available_length(self, reversed);
-        for point in self.walk(f64::INFINITY, direction, map) {
+        for (idx, point) in self.walk(f64::INFINITY, direction, map).enumerate() {
             if let Some(signal) = map.signals.get(&(point.block_id, direction)) {
                 let diff = direction.apply_sign(signal.offset_m - self.offset_m);
-                if self.block_id != signal.block_id || diff > 0.0 {
+                if idx > 0 || diff > 0.0 {
                     length += map.get_available_length(&signal.into(), reversed);
                     return (signal, length);
                 }
             }
             length += map.get_available_length(&point, reversed);
         }
-        unreachable!()
+        unreachable!("The loop should always return")
     }
 
     pub fn walk<'a>(&self, length_m: f64, direction: Direction, map: &'a BlockMap) -> TrackWalker<'a> {

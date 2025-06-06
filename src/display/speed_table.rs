@@ -30,7 +30,8 @@ struct TrainSpeedEntry {
     speed_mps: f64,
     target_speed_mps: f64,
     controls_percentage: i32,
-    // braking_distance_m: f64,
+    braking_distance_m: f64,
+    signal_distance_m: f64,
     updated: bool,
 }
 
@@ -141,6 +142,8 @@ impl SpeedTable {
                 train.speed_mps = update.speed_mps;
                 train.target_speed_mps = update.target_speed_mps;
                 train.controls_percentage = update.control_percentage;
+                train.signal_distance_m = update.signal_distance_m;
+                train.braking_distance_m = update.braking_distance_m;
                 train.updated = true;
             }
         }
@@ -183,10 +186,12 @@ impl SpeedTable {
                         .draw_rectangle(X_OFFSET, offset_y, WIDTH, TRAIN_HEADER_HEIGHT, Color::BLANK);
                     let text_y = offset_y + font_size / 2;
                     let train_status_line = format!(
-                        "#{} | next block in {:.3} m | {:.0} km/h | {}%",
+                        "#{} | block {:.3} m | {:.0} km/h | signal {:.0} m | braking {:.0} m | {}%",
                         &train.number,
                         train.next_block_m,
                         train.speed_mps * 3.6,
+                        train.signal_distance_m,
+                        train.braking_distance_m,
                         train.controls_percentage,
                     );
                     self.screen_image

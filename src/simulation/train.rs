@@ -42,7 +42,7 @@ impl RailVehicle {
             mass_kg,
             length_m,
             cargo_mass_kg,
-            max_braking_force_n: 40.0,
+            max_braking_force_n: 30_000.0,
             power_w: 0.0,
             max_tractive_effort_n: 0.0,
         }
@@ -55,7 +55,7 @@ impl RailVehicle {
             length_m,
             power_w: power_kw * 1000.0,
             max_tractive_effort_n: max_tractive_effort_kn * 1000.0,
-            max_braking_force_n: 150.0,
+            max_braking_force_n: 150_000.0,
             cargo_mass_kg: 0.0,
         }
     }
@@ -110,6 +110,8 @@ pub struct TrainStatusUpdate {
     pub target_speed_mps: f64,
     pub next_block_m: f64,
     pub control_percentage: i32,
+    pub braking_distance_m: f64,
+    pub signal_distance_m: f64,
 }
 
 pub struct Train {
@@ -127,6 +129,9 @@ pub struct Train {
     occupied_blocks: VecDeque<BlockId>,
     front_position: TrackPoint,
     back_position: TrackPoint,
+
+    braking_distance_m: f64,
+    signal_distance_m: f64,
     target_speed_margin_mps: f64,
     position_updated: bool,
 }
@@ -162,6 +167,8 @@ impl Train {
             occupied_blocks: occupied,
             front_position: state.spawn_point,
             back_position: trace.pop().unwrap(),
+            signal_distance_m: 0.0,
+            braking_distance_m: 0.0,
             target_speed_margin_mps: 0.0,
             position_updated: true,
         }
@@ -265,6 +272,14 @@ impl Train {
             self.front_position = new_front;
             self.back_position = new_back;
             self.position_updated = true;
+
+            let (signal, distance_m) = self.front_position.lookup_signal(self.direction, map);
+            let allowed_speed_mps = signal.get_allowed_speed_mps();
+            self.braking_distance_m = self.get_braking_distance(allowed_speed_mps);
+            self.signal_distance_m = distance_m;
+            if distance_m < self.braking_distance_m {
+                self.target_speed_mps = allowed_speed_mps;
+            }
         }
     }
 
@@ -277,6 +292,8 @@ impl Train {
                 target_speed_mps: self.target_speed_mps,
                 next_block_m: map.get_available_length(&self.front_position, self.direction),
                 control_percentage: self.controls.as_percentage(),
+                braking_distance_m: self.braking_distance_m,
+                signal_distance_m: self.signal_distance_m,
             })
         } else {
             None
