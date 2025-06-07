@@ -1,15 +1,36 @@
 use crate::common::{Direction, TrainId};
 use crate::display::lamp::LampId;
-use crate::level::{BlockData, Level, SignalData};
+use crate::level::{BlockData, ConnectionData, Level, SignalData};
 use itertools::Itertools;
 use std::collections::{HashMap, VecDeque};
 
 pub type BlockId = usize;
 pub type SignalId = usize;
 
+#[derive(Debug)]
+struct Chunk {
+    start_id: BlockId,
+    start_index: usize,
+}
+
+impl Default for Chunk {
+    fn default() -> Self {
+        Chunk {
+            start_id: 1,
+            start_index: 0,
+        }
+    }
+}
+
+impl PartialEq<(BlockId, usize)> for Chunk {
+    fn eq(&self, (start_id, start_index): &(usize, usize)) -> bool {
+        self.start_id == *start_id && self.start_index == *start_index
+    }
+}
+
 #[derive(Default)]
 pub struct BlockMap {
-    chunks: Vec<(BlockId, usize)>,
+    chunks: Vec<Chunk>,
     blocks: Vec<Block>,
     signals: HashMap<(BlockId, Direction), TrackSignal>,
     occupied_blocks: HashMap<BlockId, Vec<TrainId>>,
@@ -17,12 +38,12 @@ pub struct BlockMap {
 
 impl BlockMap {
     fn get_block_index(&self, id: &BlockId) -> Option<usize> {
-        match self.chunks.binary_search_by(|x| x.0.cmp(id)) {
-            Ok(x) => Some(self.chunks[x].1),
+        match self.chunks.binary_search_by(|x| x.start_id.cmp(id)) {
+            Ok(x) => Some(self.chunks[x].start_index),
             Err(x) => {
                 if x > 0 {
-                    let chunk_start = self.chunks[x - 1];
-                    Some(chunk_start.1 + (id - chunk_start.0))
+                    let chunk = &self.chunks[x - 1];
+                    Some(chunk.start_index + (id - chunk.start_id))
                 } else {
                     None
                 }
@@ -33,12 +54,6 @@ impl BlockMap {
     fn get_block_by_id(&self, id: &BlockId) -> Option<&Block> {
         let index = self.get_block_index(id)?;
         let candidate = self.blocks.get(index)?;
-        if candidate.id == *id { Some(candidate) } else { None }
-    }
-
-    fn get_block_by_id_mut(&mut self, id: &BlockId) -> Option<&mut Block> {
-        let index = self.get_block_index(id)?;
-        let candidate = self.blocks.get_mut(index)?;
         if candidate.id == *id { Some(candidate) } else { None }
     }
 
@@ -101,29 +116,37 @@ impl BlockMap {
     }
 
     pub fn from_level(level: &Level) -> Self {
-        let mut map = Self::from_iterable(&level.blocks, &level.signals);
-        for conn in &level.connections {
-            let start = map.get_block_by_id_mut(&conn.start).expect("block not found");
-            start.next = Some(conn.end);
-            let end = map.get_block_by_id_mut(&conn.end).expect("block not found");
-            end.prev = Some(conn.start);
-        }
-        map
+        Self::from_iterable(&level.blocks, &level.signals, &level.connections)
     }
 
-    pub fn from_iterable<'a, I, J>(block_data: I, signal_data: J) -> Self
+    pub fn from_iterable<'a, I, J, K>(block_data: I, signal_data: J, connection_data: K) -> Self
     where
         I: IntoIterator<Item = &'a BlockData>,
         J: IntoIterator<Item = &'a SignalData>,
+        K: IntoIterator<Item = &'a ConnectionData>,
     {
         let signals: HashMap<(BlockId, Direction), TrackSignal> = signal_data
             .into_iter()
             .map(|x| ((x.block_id, x.direction), x.into()))
             .collect();
         let mut blocks: Vec<Block> = block_data.into_iter().map_into().collect();
-        blocks.sort_by(|a, b| a.id.cmp(&b.id));
+        blocks.sort_by_key(|block| block.id);
 
-        let mut chunks: Vec<(BlockId, usize)> = vec![(blocks[0].id, 0)];
+        for conn in connection_data {
+            let start = blocks
+                .binary_search_by(|block| block.id.cmp(&conn.start))
+                .expect("start block not found");
+            let end = blocks
+                .binary_search_by(|block| block.id.cmp(&conn.end))
+                .expect("end block not found");
+            blocks[start].next = Some(conn.end);
+            blocks[end].prev = Some(conn.start);
+        }
+
+        let mut chunks: Vec<Chunk> = vec![Chunk {
+            start_id: blocks[0].id,
+            start_index: 0,
+        }];
         chunks.extend(
             blocks
                 .iter()
@@ -131,7 +154,10 @@ impl BlockMap {
                 .enumerate()
                 .tuple_windows()
                 .filter(|(a, b)| b.1 - a.1 != 1)
-                .map(|(_, b)| (b.1, b.0)),
+                .map(|(_, b)| Chunk {
+                    start_id: b.1,
+                    start_index: b.0,
+                }),
         );
 
         BlockMap {
@@ -150,7 +176,6 @@ pub struct Block {
     lamp_id: LampId,
     prev: Option<BlockId>,
     next: Option<BlockId>,
-    side: Option<BlockId>,
 }
 
 impl From<&BlockData> for Block {
@@ -351,7 +376,7 @@ mod tests {
             id: x,
             ..Default::default()
         });
-        let block_map = BlockMap::from_iterable(&block_data, []);
+        let block_map = BlockMap::from_iterable(&block_data, [], []);
         assert_eq!(block_map.blocks.len(), 10);
         assert_eq!(block_map.chunks.len(), 5);
         assert_eq!(block_map.chunks[0], (1, 0));
@@ -414,7 +439,7 @@ mod tests {
             },
         ];
         BlockMap {
-            chunks: vec![(1, 0)],
+            chunks: vec![Chunk::default()],
             blocks: blocks.into_iter().collect(),
             signals: signals.map(|x| ((x.block_id, x.direction), x)).into(),
             ..Default::default()

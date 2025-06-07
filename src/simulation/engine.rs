@@ -63,7 +63,7 @@ impl SimulationState {
             match self.receiver.try_recv() {
                 Ok(cmd) => match cmd {
                     Command::SetTimeScale(value) => {
-                        println!("Setting time scale to {}", value);
+                        println!("Setting timescale to {}", value);
                         self.time_scale = value;
                     }
                     Command::TrainSpawn(state) => self.spawn_train(*state),

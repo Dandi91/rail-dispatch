@@ -77,7 +77,7 @@ impl Clock {
                 let mut fired = self
                     .periodic_events
                     .pop_front()
-                    .expect("There are at least num_fired items in the dequeue");
+                    .expect("There are at least num_fired items in the deque");
                 result.push(ClockPayload {
                     event: fired.event,
                     elapsed_time: self.elapsed_seconds + fired.left,
