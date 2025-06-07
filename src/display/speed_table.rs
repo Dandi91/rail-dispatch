@@ -127,6 +127,10 @@ impl SpeedTable {
         self.generate_time_labels(d, now);
         self.screen_image
             .draw_rectangle(0, 0, WIDTH - KEEP_TAIL_S, self.height, Color::BLANK);
+        // reset train updates to draw them at least once
+        for train in &mut self.trains {
+            train.updated = true;
+        }
     }
 
     pub fn cleanup_tail(&mut self) {
