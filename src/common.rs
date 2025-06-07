@@ -62,6 +62,6 @@ impl Profiler {
 
 impl Drop for Profiler {
     fn drop(&mut self) {
-        println!("Updates took {}", self.now.elapsed().as_micros());
+        println!("Scope took {} us", self.now.elapsed().as_micros());
     }
 }

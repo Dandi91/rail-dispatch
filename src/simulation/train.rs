@@ -199,7 +199,7 @@ impl Train {
         let hysteresis = 0.01;
         if speed_diff_mps < hysteresis {
             // Calculate brake level - more braking for bigger negative difference
-            let brake_level = speed_diff_mps.abs() / 5.0;
+            let brake_level = speed_diff_mps.abs() / 2.0;
             return TrainControls {
                 throttle: 0.0,
                 brake_level: brake_level.clamp(0.0, 1.0),
@@ -220,7 +220,7 @@ impl Train {
             return 0.0;
         }
 
-        let braking_force = self.stats.max_braking_force_n * 0.85;
+        let braking_force = self.stats.max_braking_force_n * 0.75;
         let deceleration_mps2 = braking_force / self.stats.mass_kg;
 
         let speed_diff_mps = self.speed_mps - target_speed_mps;
@@ -257,6 +257,23 @@ impl Train {
 
         let dx = self.speed_mps * dt + 0.5 * self.acceleration_mps2 * dt.powi(2);
         if dx > 0.0 {
+            let (signal, distance_m) = self.front_position.lookup_signal(self.direction, map);
+            let allowed_speed_mps = signal.get_allowed_speed_mps();
+            self.braking_distance_m = self.get_braking_distance(allowed_speed_mps);
+            self.signal_distance_m = distance_m;
+            if distance_m < self.braking_distance_m {
+                self.target_speed_mps = allowed_speed_mps;
+            }
+
+            if distance_m < dx {
+                println!(
+                    "Passed signal {} at {:.2} km/h, allowed speed {:.2} km/h",
+                    signal.get_name(),
+                    self.speed_mps * 3.6,
+                    allowed_speed_mps * 3.6
+                );
+            }
+
             let new_front = self.front_position.step_by(dx, self.direction, map);
             if self.front_position.block_id != new_front.block_id {
                 block_updates.occupied(new_front.block_id, self.id);
@@ -272,14 +289,6 @@ impl Train {
             self.front_position = new_front;
             self.back_position = new_back;
             self.position_updated = true;
-
-            let (signal, distance_m) = self.front_position.lookup_signal(self.direction, map);
-            let allowed_speed_mps = signal.get_allowed_speed_mps();
-            self.braking_distance_m = self.get_braking_distance(allowed_speed_mps);
-            self.signal_distance_m = distance_m;
-            if distance_m < self.braking_distance_m {
-                self.target_speed_mps = allowed_speed_mps;
-            }
         }
     }
 

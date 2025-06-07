@@ -229,10 +229,11 @@ impl BlockUpdateQueue {
 #[derive(Default, Debug)]
 pub struct TrackSignal {
     id: SignalId,
-    block_id: SignalId,
+    block_id: BlockId,
     offset_m: f64,
     lamp_id: LampId,
     direction: Direction,
+    name: String,
     allowed_speed_kmh: f64,
 }
 
@@ -244,6 +245,7 @@ impl From<&SignalData> for TrackSignal {
             offset_m: value.offset_m,
             lamp_id: value.lamp_id,
             direction: value.direction,
+            name: value.name.clone(),
             allowed_speed_kmh: 0.0,
             ..Default::default()
         }
@@ -253,6 +255,10 @@ impl From<&SignalData> for TrackSignal {
 impl TrackSignal {
     pub fn get_allowed_speed_mps(&self) -> f64 {
         self.allowed_speed_kmh / 3.6
+    }
+
+    pub fn get_name(&self) -> &str {
+        self.name.as_str()
     }
 }
 
