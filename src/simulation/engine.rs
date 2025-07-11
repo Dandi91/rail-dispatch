@@ -30,6 +30,12 @@ struct SimulationState {
     block_updates: BlockUpdateQueue,
 }
 
+#[derive(PartialEq)]
+enum ConsumeResult {
+    Continue,
+    Stop,
+}
+
 impl SimulationState {
     fn setup_events(clock: &mut Clock) {
         let now = clock.current();
@@ -58,7 +64,7 @@ impl SimulationState {
         }
     }
 
-    fn consume_events(&mut self) -> bool {
+    fn consume_events(&mut self) -> ConsumeResult {
         loop {
             match self.receiver.try_recv() {
                 Ok(cmd) => match cmd {
@@ -68,12 +74,12 @@ impl SimulationState {
                     }
                     Command::TrainSpawn(state) => self.spawn_train(*state),
                     Command::TrainDespawn(id) => self.despawn_train_by_id(id),
-                    Command::Shutdown => return false,
+                    Command::Shutdown => return ConsumeResult::Stop,
                 },
                 Err(err) => {
                     return match err {
-                        TryRecvError::Empty => true,
-                        TryRecvError::Disconnected => false,
+                        TryRecvError::Empty => ConsumeResult::Continue,
+                        TryRecvError::Disconnected => ConsumeResult::Stop,
                     };
                 }
             }
@@ -82,7 +88,7 @@ impl SimulationState {
 
     fn simulate(&mut self) {
         let mut last_wake = Instant::now();
-        while self.consume_events() {
+        while self.consume_events() == ConsumeResult::Continue {
             // compute simulation duration since last wake
             let duration = Instant::now().duration_since(last_wake);
             self.sender
