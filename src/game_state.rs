@@ -55,7 +55,7 @@ impl GameState {
             match self.engine.receive_command() {
                 Ok(update) => match update {
                     SimulationUpdate::RegisterTrain(train) => {
-                        println!("Train {} registered with ID {}", train.number, train.id);
+                        println!("Train {} spawned with ID {}", train.number, train.id);
                         self.speed_table.register_train(&train);
                         self.trains.push(train);
                     }
@@ -131,8 +131,9 @@ impl GameState {
             UIState::Board => self.board.draw(d, thread),
             UIState::SpeedTable => self.speed_table.draw(d, thread),
         };
-        d.draw_text(&self.sim_duration_formatted(), 700, 3, 20, Color::RAYWHITE);
-        d.draw_text(&self.engine.time_scale_formatted(), 800, 3, 20, Color::RAYWHITE);
+        let screen_width = d.get_screen_width();
+        d.draw_text(&self.sim_duration_formatted(), screen_width - 200, 3, 20, Color::RAYWHITE);
+        d.draw_text(&self.engine.time_scale_formatted(), screen_width - 100, 3, 20, Color::RAYWHITE);
     }
 
     fn sim_duration_formatted(&self) -> String {

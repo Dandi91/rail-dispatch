@@ -42,7 +42,7 @@ impl RailVehicle {
             mass_kg,
             length_m,
             cargo_mass_kg,
-            max_braking_force_n: 30_000.0,
+            max_braking_force_n: 10_000.0,
             power_w: 0.0,
             max_tractive_effort_n: 0.0,
         }
@@ -55,7 +55,7 @@ impl RailVehicle {
             length_m,
             power_w: power_kw * 1000.0,
             max_tractive_effort_n: max_tractive_effort_kn * 1000.0,
-            max_braking_force_n: 150_000.0,
+            max_braking_force_n: 50_000.0,
             cargo_mass_kg: 0.0,
         }
     }
@@ -220,7 +220,7 @@ impl Train {
             return 0.0;
         }
 
-        let braking_force = self.stats.max_braking_force_n * 0.75;
+        let braking_force = self.stats.max_braking_force_n * 0.8;
         let deceleration_mps2 = braking_force / self.stats.mass_kg;
 
         let speed_diff_mps = self.speed_mps - target_speed_mps;
