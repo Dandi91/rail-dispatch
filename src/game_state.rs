@@ -6,20 +6,23 @@ use crate::event::SimulationUpdate;
 use crate::level::Level;
 use crate::simulation::engine::Engine;
 use itertools::Itertools;
+use once_cell::sync::Lazy;
 use raylib::prelude::*;
+use std::collections::HashMap;
 use std::sync::mpsc::TryRecvError;
 
-enum UIState {
-    Board,
+#[derive(Copy, Clone, PartialEq)]
+enum UIWidget {
     SpeedTable,
 }
 
-const DEFAULT_UI_STATE: UIState = UIState::Board;
+static WIDGET_KEY_MAP: Lazy<HashMap<KeyboardKey, UIWidget>> =
+    Lazy::new(|| HashMap::from([(KeyboardKey::KEY_S, UIWidget::SpeedTable)]));
 
 pub struct GameState {
     // UI
     sim_duration: f64,
-    ui_state: UIState,
+    widgets: Vec<UIWidget>,
     board: DisplayBoard,
     speed_table: SpeedTable,
     // Logic
@@ -32,7 +35,7 @@ impl GameState {
         let level = Level::load_from_file("resources/level.toml");
         GameState {
             sim_duration: 0.0,
-            ui_state: UIState::Board,
+            widgets: Vec::with_capacity(10),
             engine: Engine::new(&level),
             board: DisplayBoard::new(&level, width, height),
             speed_table: SpeedTable::new(),
@@ -93,12 +96,19 @@ impl GameState {
         }
     }
 
-    pub fn process_input(&mut self, d: &RaylibDrawHandle) {
-        if d.is_key_pressed(KeyboardKey::KEY_S) {
-            self.ui_state = match self.ui_state {
-                UIState::SpeedTable => DEFAULT_UI_STATE,
-                _ => UIState::SpeedTable,
-            }
+    fn toggle_widget(&mut self, widget: UIWidget) {
+        if self.widgets.contains(&widget) {
+            self.widgets.retain(|x| *x != widget);
+        } else {
+            self.widgets.push(widget);
+        }
+    }
+
+    pub fn process_input(&mut self, d: &mut RaylibDrawHandle) {
+        if let Some(key) = d.get_key_pressed()
+            && let Some(widget) = WIDGET_KEY_MAP.get(&key)
+        {
+            self.toggle_widget(*widget);
         }
 
         // sim speed control
@@ -127,11 +137,23 @@ impl GameState {
     }
 
     pub fn draw(&mut self, d: &mut RaylibDrawHandle, thread: &RaylibThread) {
-        match self.ui_state {
-            UIState::Board => self.board.draw(d, thread),
-            UIState::SpeedTable => self.speed_table.draw(d, thread),
-        };
-        let screen_width = d.get_screen_width();
+        self.board.draw(d, thread);
+
+        let (screen_width, screen_height) = (d.get_screen_width(), d.get_screen_height());
+        for widget in &self.widgets {
+            match widget {
+                UIWidget::SpeedTable => {
+                    let extent = Rectangle {
+                        x: (screen_width - SpeedTable::get_width()) as f32,
+                        y: 0.0,
+                        width: SpeedTable::get_width() as f32,
+                        height: screen_height as f32,
+                    };
+                    self.speed_table.draw(d, thread, &extent);
+                }
+            }
+        }
+
         d.draw_text(
             &self.sim_duration_formatted(),
             screen_width - 200,

@@ -45,8 +45,16 @@ impl SimulationState {
         let starting_minute = now.minute().lower_multiple(MAX_HORIZONTAL_MINUTES as u32);
         let speed_table_start = now.with_minute(starting_minute).unwrap();
         let tail_clean = speed_table_start + KEEP_SPEED_TABLE_TAIL;
-        clock.subscribe_event(ClockEvent::SpeedTableScroll, MAX_HORIZONTAL_SECONDS as f64, Some(speed_table_start));
-        clock.subscribe_event(ClockEvent::SpeedTableTailClean, MAX_HORIZONTAL_SECONDS as f64, Some(tail_clean));
+        clock.subscribe_event(
+            ClockEvent::SpeedTableScroll,
+            MAX_HORIZONTAL_SECONDS as f64,
+            Some(speed_table_start),
+        );
+        clock.subscribe_event(
+            ClockEvent::SpeedTableTailClean,
+            MAX_HORIZONTAL_SECONDS as f64,
+            Some(tail_clean),
+        );
     }
 
     fn new(init: ThreadInitState) -> Self {

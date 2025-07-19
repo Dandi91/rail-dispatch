@@ -14,7 +14,7 @@ use raylib::prelude::*;
 
 fn main() {
     let title = "Rail Dispatch";
-    let (width, height) = (1024, 960);
+    let (width, height) = (1440, 960);
     let (mut rl, thread) = init().size(width, height).title(title).resizable().build();
     rl.set_target_fps(60);
 
@@ -24,7 +24,7 @@ fn main() {
     while !rl.window_should_close() {
         let mut d = rl.begin_drawing(&thread);
         state.process_updates(&d);
-        state.process_input(&d);
+        state.process_input(&mut d);
         state.draw(&mut d, &thread);
         d.draw_fps(3, 5);
     }

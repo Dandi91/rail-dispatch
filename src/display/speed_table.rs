@@ -16,9 +16,7 @@ const TRAIN_HEADER_HEIGHT: i32 = 20;
 const GRID_HEIGHT: i32 = TRAIN_GRID_HEIGHT + TIME_LABELS_HEIGHT;
 const TRAIN_CARD_HEIGHT: i32 = TRAIN_HEADER_HEIGHT + GRID_HEIGHT;
 
-const MAX_TRAINS_VISIBLE: i32 = 6;
 const WIDGET_WIDTH: i32 = MAX_HORIZONTAL_SECONDS + 80;
-const WIDGET_HEIGHT: i32 = MAX_TRAINS_VISIBLE * TRAIN_CARD_HEIGHT + PADDING;
 const WIDTH: i32 = WIDGET_WIDTH - PADDING + 1;
 
 pub const MAX_HORIZONTAL_MINUTES: i32 = 10;
@@ -53,6 +51,10 @@ pub struct SpeedTable {
 }
 
 impl SpeedTable {
+    pub fn get_width() -> i32 {
+        WIDGET_WIDTH
+    }
+
     pub fn new() -> Self {
         let height = 1; // initially no trains are registered, so keep it at minimum
         let mut result = SpeedTable {
@@ -245,11 +247,18 @@ impl SpeedTable {
         }
     }
 
-    fn draw_no_trains(&self, d: &mut RaylibDrawHandle) {
+    fn draw_no_trains(&self, d: &mut RaylibDrawHandle, extent: &Rectangle) {
         let font_size = 40;
-        let x = WIDGET_WIDTH / 2;
+        let x = extent.width as i32 / 2;
         let y = (100 - font_size) / 2;
-        draw_text_centered(d, "No trains", x, y, font_size, Color::BLACK);
+        draw_text_centered(
+            d,
+            "No trains",
+            x + extent.x as i32,
+            y + extent.y as i32,
+            font_size,
+            Color::BLACK,
+        );
     }
 
     fn update_grid_texture(&mut self, d: &mut RaylibDrawHandle, thread: &RaylibThread) {
@@ -262,12 +271,11 @@ impl SpeedTable {
         }
     }
 
-    pub fn draw(&mut self, d: &mut RaylibDrawHandle, thread: &RaylibThread) {
-        d.clear_background(Color::LIGHTGRAY);
-        d.set_window_size(WIDGET_WIDTH, WIDGET_HEIGHT);
+    pub fn draw(&mut self, d: &mut RaylibDrawHandle, thread: &RaylibThread, extent: &Rectangle) {
+        d.draw_rectangle_rec(extent, Color::LIGHTGRAY);
 
         if self.trains.is_empty() {
-            self.draw_no_trains(d);
+            self.draw_no_trains(d, extent);
             return;
         }
 
@@ -294,16 +302,13 @@ impl SpeedTable {
             Color::BLANK.color_to_int(),
         );
         (_, self.view, self.scroll) = d.gui_scroll_panel(
-            Rectangle {
-                width: WIDGET_WIDTH as f32,
-                height: WIDGET_HEIGHT as f32,
-                ..Rectangle::default()
-            },
+            extent,
             "Train speed graphs",
             Rectangle {
+                x: extent.x,
+                y: extent.y,
                 width: (WIDTH + PADDING - scroll_bar_width) as f32,
-                height: (self.height + half_padding) as f32,
-                ..Rectangle::default()
+                height: (self.height + scroll_bar_width) as f32,
             },
             self.scroll,
             self.view,
@@ -315,8 +320,8 @@ impl SpeedTable {
             self.view.width as i32,
             self.view.height as i32,
             |mut d| {
-                let scroll_offset_x = half_padding + self.scroll.x as i32 - scroll_bar_width / 2;
-                let scroll_offset_y = half_padding + self.scroll.y as i32;
+                let scroll_offset_x = half_padding + self.scroll.x as i32 - scroll_bar_width / 2 + extent.x as i32;
+                let scroll_offset_y = half_padding + self.scroll.y as i32 + extent.y as i32;
                 // draw speed grid for every train
                 let texture = self.grid_texture.as_ref().unwrap();
                 for idx in 0..self.trains.len() as i32 {
