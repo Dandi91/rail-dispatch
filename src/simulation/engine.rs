@@ -1,6 +1,6 @@
 use crate::clock::{Clock, ClockEvent};
-use crate::common::{Direction, TrainId};
-use crate::display::speed_table::KEEP_TAIL_S;
+use crate::common::{Direction, LowerMultiple, TrainId};
+use crate::display::speed_table::{KEEP_TAIL_S, MAX_HORIZONTAL_MINUTES, MAX_HORIZONTAL_SECONDS};
 use crate::display::train::{TrainDisplayState, TrainKind};
 use crate::event::{Command, SimulationUpdate};
 use crate::level::Level;
@@ -39,13 +39,14 @@ enum ConsumeResult {
 impl SimulationState {
     fn setup_events(clock: &mut Clock) {
         let now = clock.current();
-        clock.subscribe_periodic_event(ClockEvent::TrainInfoUpdate, 0.1, None);
-        clock.subscribe_periodic_event(ClockEvent::ClockUpdate, 1.0, Some(now));
+        clock.subscribe_event(ClockEvent::TrainInfoUpdate, 0.1, None);
+        clock.subscribe_event(ClockEvent::ClockUpdate, 1.0, Some(now));
 
-        let quarter_hour_start = now.with_minute(now.minute() / 15 * 15).unwrap();
-        let tail_clean = quarter_hour_start + KEEP_SPEED_TABLE_TAIL;
-        clock.subscribe_periodic_event(ClockEvent::EveryQuarterHour, 15.0 * 60.0, Some(quarter_hour_start));
-        clock.subscribe_periodic_event(ClockEvent::SpeedTableTailClean, 15.0 * 60.0, Some(tail_clean));
+        let starting_minute = now.minute().lower_multiple(MAX_HORIZONTAL_MINUTES as u32);
+        let speed_table_start = now.with_minute(starting_minute).unwrap();
+        let tail_clean = speed_table_start + KEEP_SPEED_TABLE_TAIL;
+        clock.subscribe_event(ClockEvent::SpeedTableScroll, MAX_HORIZONTAL_SECONDS as f64, Some(speed_table_start));
+        clock.subscribe_event(ClockEvent::SpeedTableTailClean, MAX_HORIZONTAL_SECONDS as f64, Some(tail_clean));
     }
 
     fn new(init: ThreadInitState) -> Self {

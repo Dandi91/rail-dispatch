@@ -75,7 +75,7 @@ impl GameState {
                     }
                     SimulationUpdate::Clock(payload) => match payload.event {
                         ClockEvent::SpeedTableTailClean => self.speed_table.cleanup_tail(),
-                        ClockEvent::EveryQuarterHour => self.speed_table.scroll_quarter(d, payload.current_time),
+                        ClockEvent::SpeedTableScroll => self.speed_table.scroll_horizontally(d, payload.current_time),
                         ClockEvent::ClockUpdate => self.board.clock_update(payload.current_time),
                         _ => {}
                     },
@@ -132,11 +132,23 @@ impl GameState {
             UIState::SpeedTable => self.speed_table.draw(d, thread),
         };
         let screen_width = d.get_screen_width();
-        d.draw_text(&self.sim_duration_formatted(), screen_width - 200, 3, 20, Color::RAYWHITE);
-        d.draw_text(&self.engine.time_scale_formatted(), screen_width - 100, 3, 20, Color::RAYWHITE);
+        d.draw_text(
+            &self.sim_duration_formatted(),
+            screen_width - 200,
+            3,
+            20,
+            Color::RAYWHITE,
+        );
+        d.draw_text(
+            &self.engine.time_scale_formatted(),
+            screen_width - 100,
+            3,
+            20,
+            Color::RAYWHITE,
+        );
     }
 
     fn sim_duration_formatted(&self) -> String {
-        format!("{:5} us", (self.sim_duration * 1_000_000.0) as u32)
+        format!("{} us", (self.sim_duration * 1_000_000.0) as u32)
     }
 }

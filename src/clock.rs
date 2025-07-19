@@ -6,7 +6,7 @@ use std::ops::Add;
 pub enum ClockEvent {
     TrainInfoUpdate,
     ClockUpdate,
-    EveryQuarterHour,
+    SpeedTableScroll,
     SpeedTableTailClean,
 }
 
@@ -51,7 +51,7 @@ impl Clock {
         (dt - self.start_point).num_microseconds().unwrap() as f64 / 1_000_000.0
     }
 
-    pub fn subscribe_periodic_event(&mut self, event: ClockEvent, period: f64, start_at: Option<NaiveDateTime>) {
+    pub fn subscribe_event(&mut self, event: ClockEvent, period: f64, start_at: Option<NaiveDateTime>) {
         let left = match start_at {
             Some(start_at) => self.datetime_to_elapsed_seconds(start_at) - self.elapsed_seconds,
             None => period,

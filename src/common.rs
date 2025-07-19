@@ -31,6 +31,25 @@ impl Direction {
     }
 }
 
+pub trait LowerMultiple {
+    type Output;
+    fn lower_multiple(self, divisor: Self::Output) -> Self::Output;
+}
+
+impl LowerMultiple for u32 {
+    type Output = u32;
+    fn lower_multiple(self, divisor: u32) -> u32 {
+        self / divisor * divisor
+    }
+}
+
+impl LowerMultiple for i32 {
+    type Output = i32;
+    fn lower_multiple(self, divisor: i32) -> i32 {
+        self / divisor * divisor
+    }
+}
+
 pub fn draw_text_centered(d: &mut RaylibDrawHandle, text: &str, x: i32, y: i32, font_size: i32, color: Color) {
     let width = d.measure_text(text, font_size);
     d.draw_text(text, x - width / 2, y, font_size, color);

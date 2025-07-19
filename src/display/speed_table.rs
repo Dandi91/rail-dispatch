@@ -1,4 +1,4 @@
-use crate::common::{TrainId, draw_text_centered, image_draw_text_centered};
+use crate::common::{LowerMultiple, TrainId, draw_text_centered, image_draw_text_centered};
 use crate::display::train::TrainDisplayState;
 use crate::simulation::train::TrainStatusUpdate;
 use chrono::{NaiveDateTime, Timelike};
@@ -17,9 +17,12 @@ const GRID_HEIGHT: i32 = TRAIN_GRID_HEIGHT + TIME_LABELS_HEIGHT;
 const TRAIN_CARD_HEIGHT: i32 = TRAIN_HEADER_HEIGHT + GRID_HEIGHT;
 
 const MAX_TRAINS_VISIBLE: i32 = 6;
-const WIDGET_WIDTH: i32 = 980;
+const WIDGET_WIDTH: i32 = MAX_HORIZONTAL_SECONDS + 80;
 const WIDGET_HEIGHT: i32 = MAX_TRAINS_VISIBLE * TRAIN_CARD_HEIGHT + PADDING;
 const WIDTH: i32 = WIDGET_WIDTH - PADDING + 1;
+
+pub const MAX_HORIZONTAL_MINUTES: i32 = 10;
+pub const MAX_HORIZONTAL_SECONDS: i32 = MAX_HORIZONTAL_MINUTES * 60;
 pub const KEEP_TAIL_S: i32 = 120;
 
 #[derive(Default)]
@@ -123,7 +126,7 @@ impl SpeedTable {
         }
     }
 
-    pub fn scroll_quarter(&mut self, d: &RaylibDrawHandle, now: NaiveDateTime) {
+    pub fn scroll_horizontally(&mut self, d: &RaylibDrawHandle, now: NaiveDateTime) {
         self.generate_time_labels(d, now);
         self.screen_image
             .draw_rectangle(0, 0, WIDTH - KEEP_TAIL_S, self.height, Color::BLANK);
@@ -155,14 +158,13 @@ impl SpeedTable {
         let speed_color = Color::new(0xBB, 0x00, 0x00, 0xFF);
         let target_speed_color = Color::ORANGE;
         let max_speed_mps = 100.0 / 3.6;
-        let max_time_s = 900;
 
         let speed_to_coord = |offset_y: i32, speed_mps: f64| -> i32 {
             let norm = 1.0 - (speed_mps.clamp(0.0, max_speed_mps) / max_speed_mps);
             (norm * TRAIN_GRID_HEIGHT as f64).trunc() as i32 + offset_y + TRAIN_HEADER_HEIGHT
         };
 
-        let time_x = elapsed_seconds.round() as i32 % max_time_s + X_OFFSET;
+        let time_x = elapsed_seconds.round() as i32 % MAX_HORIZONTAL_SECONDS + X_OFFSET;
         self.trains.iter().enumerate().for_each(|(index, train)| {
             let offset_y = index as i32 * TRAIN_CARD_HEIGHT;
             let target_speed_y = speed_to_coord(offset_y, train.target_speed_mps);
@@ -206,8 +208,10 @@ impl SpeedTable {
     }
 
     fn generate_time_labels(&mut self, d: &RaylibDrawHandle, now: NaiveDateTime) {
-        let quarter = now.minute() / 15 * 15;
-        let time_labels = (quarter..quarter + 15).map(|minute| format!("{:02}:{:02}", now.hour(), minute));
+        let span_length = MAX_HORIZONTAL_MINUTES as u32;
+        let span_start = now.minute().lower_multiple(span_length);
+        let time_labels =
+            (span_start..span_start + span_length).map(|minute| format!("{:02}:{:02}", now.hour(), minute));
         // clear place before printing new text
         self.grid_image
             .draw_rectangle(0, TRAIN_GRID_HEIGHT + 1, WIDTH, TIME_LABELS_HEIGHT, Color::BLANK);
