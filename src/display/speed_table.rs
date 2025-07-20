@@ -7,7 +7,8 @@ use raylib::error::Error;
 use raylib::prelude::*;
 use std::iter::zip;
 
-const PADDING: i32 = 60;
+const PADDING: i32 = 40;
+const V_PADDING: i32 = 10;
 const X_OFFSET: i32 = 20;
 const LABEL_OFFSET: i32 = 4;
 const TRAIN_GRID_HEIGHT: i32 = 100;
@@ -16,7 +17,7 @@ const TRAIN_HEADER_HEIGHT: i32 = 20;
 const GRID_HEIGHT: i32 = TRAIN_GRID_HEIGHT + TIME_LABELS_HEIGHT;
 const TRAIN_CARD_HEIGHT: i32 = TRAIN_HEADER_HEIGHT + GRID_HEIGHT;
 
-const WIDGET_WIDTH: i32 = MAX_HORIZONTAL_SECONDS + 80;
+const WIDGET_WIDTH: i32 = MAX_HORIZONTAL_SECONDS + PADDING + X_OFFSET;
 const WIDTH: i32 = WIDGET_WIDTH - PADDING + 1;
 
 pub const MAX_HORIZONTAL_MINUTES: i32 = 10;
@@ -295,6 +296,7 @@ impl SpeedTable {
         }
 
         let half_padding = PADDING / 2;
+        let v_padding = half_padding + V_PADDING;
         let scroll_bar_width = 20;
         d.gui_set_style(
             GuiControl::DEFAULT,
@@ -308,7 +310,7 @@ impl SpeedTable {
                 x: extent.x,
                 y: extent.y,
                 width: (WIDTH + PADDING - scroll_bar_width) as f32,
-                height: (self.height + scroll_bar_width) as f32,
+                height: (self.height + V_PADDING) as f32,
             },
             self.scroll,
             self.view,
@@ -321,7 +323,7 @@ impl SpeedTable {
             self.view.height as i32,
             |mut d| {
                 let scroll_offset_x = half_padding + self.scroll.x as i32 - scroll_bar_width / 2 + extent.x as i32;
-                let scroll_offset_y = half_padding + self.scroll.y as i32 + extent.y as i32;
+                let scroll_offset_y = v_padding + self.scroll.y as i32 + extent.y as i32;
                 // draw speed grid for every train
                 let texture = self.grid_texture.as_ref().unwrap();
                 for idx in 0..self.trains.len() as i32 {
