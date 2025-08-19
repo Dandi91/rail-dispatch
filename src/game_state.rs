@@ -118,6 +118,9 @@ impl GameState {
         if d.is_key_pressed(KeyboardKey::KEY_DOWN) {
             self.engine.decrease_simulation_speed();
         }
+        if d.is_key_pressed(KeyboardKey::KEY_P) {
+            self.engine.toggle_pause();
+        }
 
         // debug train spawn
         if d.is_key_pressed(KeyboardKey::KEY_G) {

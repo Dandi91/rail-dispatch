@@ -22,6 +22,7 @@ const KEEP_SPEED_TABLE_TAIL: TimeDelta = TimeDelta::seconds(KEEP_TAIL_S as i64);
 struct SimulationState {
     next_id: TrainId,
     time_scale: f64,
+    paused: bool,
     sender: Sender<SimulationUpdate>,
     receiver: Receiver<Command>,
     clock: Clock,
@@ -64,6 +65,7 @@ impl SimulationState {
         SimulationState {
             next_id: 0,
             time_scale: MULTIPLIERS[DEFAULT_MULTIPLIER_INDEX],
+            paused: false,
             sender: init.sender,
             receiver: init.receiver,
             clock,
@@ -80,6 +82,14 @@ impl SimulationState {
                     Command::SetTimeScale(value) => {
                         println!("Setting timescale to {}", value);
                         self.time_scale = value;
+                    }
+                    Command::TogglePause => {
+                        self.paused = !self.paused;
+                        if self.paused {
+                            println!("Paused");
+                        } else {
+                            println!("Resumed");
+                        }
                     }
                     Command::TrainSpawn(state) => self.spawn_train(*state),
                     Command::TrainDespawn(id) => self.despawn_train_by_id(id),
@@ -113,6 +123,10 @@ impl SimulationState {
             let actual_dt = this_wake - last_wake;
             let sim_dt = actual_dt.as_secs_f64() * self.time_scale;
             last_wake = this_wake;
+
+            if self.paused {
+                continue
+            }
 
             // run simulation based on the actual dt
             self.trains
@@ -241,6 +255,10 @@ impl Engine {
             self.time_scale = MULTIPLIERS[self.multiplier_index];
             self.send_command(Command::SetTimeScale(self.time_scale));
         }
+    }
+
+    pub fn toggle_pause(&self) {
+        self.send_command(Command::TogglePause);
     }
 
     pub fn spawn_train(&self) {

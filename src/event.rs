@@ -6,6 +6,7 @@ use crate::simulation::train::{TrainSpawnState, TrainStatusUpdate};
 
 pub enum Command {
     SetTimeScale(f64),
+    TogglePause,
     TrainSpawn(Box<TrainSpawnState>),
     TrainDespawn(TrainId),
     Shutdown,
