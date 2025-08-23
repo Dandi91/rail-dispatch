@@ -88,31 +88,76 @@ impl BlockMap {
         Some(self.get_block_by_id(&next).expect("block not found"))
     }
 
+    pub fn is_block_free(&self, block_id: BlockId) -> bool {
+        self.occupied_blocks.get(&block_id).is_none_or(|v| v.is_empty())
+    }
+
+    pub fn get_signals(&self) -> impl Iterator<Item = &TrackSignal> {
+        self.signals.values()
+    }
+
     pub fn process_updates(&mut self, updates: &mut BlockUpdateQueue) -> impl Iterator<Item = (LampId, bool)> {
         updates
             .0
             .drain(..)
             .map(|u| {
                 let vec = self.occupied_blocks.entry(u.block_id).or_insert(Vec::with_capacity(1));
-                if u.state {
+                let block_change = if u.state {
+                    // block occupation
                     vec.push(u.train_id);
                     if vec.len() == 1 {
-                        let block = self.get_block_by_id(&u.block_id).unwrap();
-                        Some((block.lamp_id, u.state))
+                        self.get_block_by_id(&u.block_id)
                     } else {
                         None
                     }
                 } else {
+                    // block freeing
                     vec.retain(|&x| x != u.train_id);
                     if vec.is_empty() {
-                        let block = self.get_block_by_id(&u.block_id).unwrap();
-                        Some((block.lamp_id, u.state))
+                        self.get_block_by_id(&u.block_id)
                     } else {
                         None
                     }
+                };
+
+                let mut result = [None; 3];
+                if let Some(block) = block_change {
+                    result[0].replace((block.lamp_id, u.state));
+                    self.find_affected_signals(block, u.state)
+                        .map(|signal| (signal.lamp_id, !u.state))
+                        .enumerate()
+                        .fold(&mut result, |acc, (idx, item)| {
+                            acc[idx + 1].replace(item);
+                            acc
+                        });
                 }
+                result
             })
             .flatten()
+            .flatten()
+    }
+
+    fn find_affected_signals(&self, block: &Block, state: bool) -> impl Iterator<Item = &TrackSignal> {
+        let point = block.middle();
+        [Direction::Even, Direction::Odd]
+            .iter()
+            .map(move |&direction| {
+                point
+                    .walk(f64::INFINITY, direction, self)
+                    .skip(1)
+                    .find_map(|p| self.signals.get(&(p.block_id, direction.reverse())))
+            })
+            .flatten()
+            .filter(move |signal| state || self.is_signal_free(signal))
+    }
+
+    fn is_signal_free(&self, signal: &TrackSignal) -> bool {
+        let result = TrackPoint::from(signal)
+            .walk(f64::INFINITY, signal.direction, self)
+            .skip(1)
+            .take_while_inclusive(|p| self.signals.get(&(p.block_id, signal.direction)).is_none())
+            .all(|p| self.is_block_free(p.block_id));
+        result
     }
 
     pub fn from_level(level: &Level) -> Self {
@@ -189,6 +234,15 @@ impl From<&BlockData> for Block {
     }
 }
 
+impl Block {
+    pub fn middle(&self) -> TrackPoint {
+        TrackPoint {
+            block_id: self.id,
+            offset_m: self.length_m / 2.0,
+        }
+    }
+}
+
 struct BlockUpdate {
     block_id: BlockId,
     train_id: TrainId,
@@ -228,13 +282,13 @@ impl BlockUpdateQueue {
 
 #[derive(Default, Debug)]
 pub struct TrackSignal {
-    id: SignalId,
-    block_id: BlockId,
-    offset_m: f64,
-    lamp_id: LampId,
-    direction: Direction,
-    name: String,
-    allowed_speed_kmh: f64,
+    pub id: SignalId,
+    pub block_id: BlockId,
+    pub offset_m: f64,
+    pub lamp_id: LampId,
+    pub direction: Direction,
+    pub name: String,
+    pub allowed_speed_kmh: f64,
 }
 
 impl From<&SignalData> for TrackSignal {
@@ -246,7 +300,7 @@ impl From<&SignalData> for TrackSignal {
             lamp_id: value.lamp_id,
             direction: value.direction,
             name: value.name.clone(),
-            allowed_speed_kmh: 0.0,
+            allowed_speed_kmh: 80.0,
             ..Default::default()
         }
     }

@@ -105,7 +105,17 @@ impl SimulationState {
         }
     }
 
+    fn clear_all_signals(&self) {
+        self.block_map.get_signals().for_each(|signal| {
+            self.sender
+                .send(SimulationUpdate::LampState(signal.lamp_id, true))
+                .unwrap();
+        });
+    }
+
     fn simulate(&mut self) {
+        self.clear_all_signals();
+
         let mut last_wake = Instant::now();
         while self.consume_events() == ConsumeResult::Continue {
             // compute simulation duration since last wake
@@ -125,7 +135,7 @@ impl SimulationState {
             last_wake = this_wake;
 
             if self.paused {
-                continue
+                continue;
             }
 
             // run simulation based on the actual dt

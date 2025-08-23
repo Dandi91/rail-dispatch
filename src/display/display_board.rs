@@ -1,6 +1,6 @@
 use crate::common::draw_text_centered;
 use crate::consts::TRACK_WIDTH;
-use crate::display::lamp::{LAMP_COLOR_GRAY, LAMP_COLOR_RED, Lamp, LampId, LampState};
+use crate::display::lamp::{LAMP_COLOR_GRAY, LAMP_COLOR_GREEN, LAMP_COLOR_RED, Lamp, LampId, LampState};
 use crate::display::signal::TrackSignalCommonState;
 use crate::level::{Level, SignalData};
 use chrono::NaiveDateTime;
@@ -53,7 +53,11 @@ impl DisplayBoard {
     pub fn process_update(&mut self, lamp_id: LampId, new_state: bool) {
         if let Some(lamp) = self.lamps.get_mut(&lamp_id) {
             lamp.state = if new_state {
-                LampState::ON(LAMP_COLOR_RED)
+                LampState::ON(if lamp_id >= 100 {
+                    LAMP_COLOR_GREEN
+                } else {
+                    LAMP_COLOR_RED
+                })
             } else {
                 LampState::OFF(LAMP_COLOR_GRAY)
             }
