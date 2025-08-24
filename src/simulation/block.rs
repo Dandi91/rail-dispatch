@@ -145,8 +145,7 @@ impl BlockMap {
         [Direction::Even, Direction::Odd]
             .iter()
             .map(move |&direction| {
-                point
-                    .walk(f64::INFINITY, direction, self)
+                self.walk(&point, f64::INFINITY, direction)
                     .skip(1)
                     .find_map(|p| self.signals.get(&(p.block_id, direction.reverse())))
             })
@@ -155,11 +154,47 @@ impl BlockMap {
     }
 
     fn is_signal_free(&self, signal: &TrackSignal) -> bool {
-        TrackPoint::from(signal)
-            .walk(f64::INFINITY, signal.direction, self)
+        self.walk(&signal.into(), f64::INFINITY, signal.direction)
             .skip(1)
             .take_while_inclusive(|p| self.signals.get(&(p.block_id, signal.direction)).is_none())
             .all(|p| self.is_block_free(p.block_id))
+    }
+
+    /// Step `length_m` meters in the `direction` along the track
+    pub fn step_by(&self, start: &TrackPoint, length_m: f64, direction: Direction) -> TrackPoint {
+        self.walk(start, length_m, direction)
+            .last()
+            .expect("expected non-zero length")
+    }
+
+    /// Tries to find a signal in the `direction` along the track, returning tuple of signal and distance to it
+    pub fn lookup_signal(&self, start: &TrackPoint, direction: Direction) -> (&TrackSignal, f64) {
+        let reversed = direction.reverse();
+        let mut length = -self.get_available_length(start, reversed);
+        for (idx, point) in self.walk(start, f64::INFINITY, direction).enumerate() {
+            if let Some(signal) = self.signals.get(&(point.block_id, direction)) {
+                let diff = direction.apply_sign(signal.offset_m - start.offset_m);
+                if idx > 0 || diff > 0.0 {
+                    length += self.get_available_length(&signal.into(), reversed);
+                    return (signal, length);
+                }
+            }
+            length += self.get_available_length(&point, reversed);
+        }
+        unreachable!("The loop should always return")
+    }
+
+    pub fn walk(&self, start: &TrackPoint, length_m: f64, direction: Direction) -> TrackWalker<'_> {
+        let block = self.get_block_by_id(&start.block_id).unwrap();
+        TrackWalker {
+            block_map: self,
+            current_block_id: start.block_id,
+            offset_m: start.offset_m,
+            block_available_m: self.get_available_length(start, direction),
+            current_block_length_m: block.length_m,
+            length_m,
+            direction,
+        }
     }
 
     pub fn from_level(level: &Level) -> Self {
@@ -329,45 +364,6 @@ impl From<&TrackSignal> for TrackPoint {
         TrackPoint {
             block_id: value.block_id,
             offset_m: value.offset_m,
-        }
-    }
-}
-
-impl TrackPoint {
-    /// Step `length_m` meters in the `direction` along the track
-    pub fn step_by(&self, length_m: f64, direction: Direction, map: &BlockMap) -> TrackPoint {
-        self.walk(length_m, direction, map)
-            .last()
-            .expect("expected non-zero length")
-    }
-
-    /// Tries to find a signal in the `direction` along the track, returning tuple of signal and distance to it
-    pub fn lookup_signal<'a>(&self, direction: Direction, map: &'a BlockMap) -> (&'a TrackSignal, f64) {
-        let reversed = direction.reverse();
-        let mut length = -map.get_available_length(self, reversed);
-        for (idx, point) in self.walk(f64::INFINITY, direction, map).enumerate() {
-            if let Some(signal) = map.signals.get(&(point.block_id, direction)) {
-                let diff = direction.apply_sign(signal.offset_m - self.offset_m);
-                if idx > 0 || diff > 0.0 {
-                    length += map.get_available_length(&signal.into(), reversed);
-                    return (signal, length);
-                }
-            }
-            length += map.get_available_length(&point, reversed);
-        }
-        unreachable!("The loop should always return")
-    }
-
-    pub fn walk<'a>(&self, length_m: f64, direction: Direction, map: &'a BlockMap) -> TrackWalker<'a> {
-        let block = map.get_block_by_id(&self.block_id).unwrap();
-        TrackWalker {
-            block_map: map,
-            current_block_id: self.block_id,
-            offset_m: self.offset_m,
-            block_available_m: map.get_available_length(self, direction),
-            current_block_length_m: block.length_m,
-            length_m,
-            direction,
         }
     }
 }
@@ -550,7 +546,7 @@ mod tests {
             block_id: 1,
             offset_m: 250.0,
         };
-        let visited: Vec<TrackPoint> = point.walk(450.0, Direction::Even, &map).collect();
+        let visited: Vec<TrackPoint> = map.walk(&point, 450.0, Direction::Even).collect();
         assert_eq!(visited.len(), 1);
         assert_eq!(visited[0].block_id, 1);
         assert_eq!(visited[0].offset_m, 700.0);
@@ -563,7 +559,7 @@ mod tests {
             block_id: 1,
             offset_m: 750.0,
         };
-        let visited: Vec<TrackPoint> = point.walk(650.0, Direction::Odd, &map).collect();
+        let visited: Vec<TrackPoint> = map.walk(&point, 650.0, Direction::Odd).collect();
         assert_eq!(visited.len(), 1);
         assert_eq!(visited[0].block_id, 1);
         assert_eq!(visited[0].offset_m, 100.0);
@@ -576,7 +572,7 @@ mod tests {
             block_id: 1,
             offset_m: 250.0,
         };
-        let visited: Vec<TrackPoint> = point.walk(2500.0, Direction::Even, &map).collect();
+        let visited: Vec<TrackPoint> = map.walk(&point, 2500.0, Direction::Even).collect();
         assert_eq!(visited.len(), 3);
         assert_eq!(visited[0].block_id, 1);
         assert_eq!(visited[1].block_id, 2);
@@ -593,7 +589,7 @@ mod tests {
             block_id: 3,
             offset_m: 1050.0,
         };
-        let visited: Vec<TrackPoint> = point.walk(2500.0, Direction::Odd, &map).collect();
+        let visited: Vec<TrackPoint> = map.walk(&point, 2500.0, Direction::Odd).collect();
         assert_eq!(visited.len(), 3);
         assert_eq!(visited[0].block_id, 3);
         assert_eq!(visited[1].block_id, 2);
@@ -611,7 +607,7 @@ mod tests {
             block_id: 3,
             offset_m: 850.0,
         };
-        point.walk(2500.0, Direction::Even, &map).collect_vec();
+        map.walk(&point, 2500.0, Direction::Even).collect_vec();
     }
 
     #[test]
@@ -622,7 +618,7 @@ mod tests {
             block_id: 1,
             offset_m: 150.0,
         };
-        point.walk(2500.0, Direction::Odd, &map).collect_vec();
+        map.walk(&point, 2500.0, Direction::Odd).collect_vec();
     }
 
     #[test]
@@ -632,7 +628,7 @@ mod tests {
             block_id: 1,
             offset_m: 200.0,
         };
-        let (signal, distance) = point.lookup_signal(Direction::Even, &map);
+        let (signal, distance) = map.lookup_signal(&point, Direction::Even);
         assert_eq!(signal.id, 1);
         assert_eq!(signal.block_id, 3);
         assert_eq!(distance, 2700.0);
@@ -645,7 +641,7 @@ mod tests {
             block_id: 3,
             offset_m: 1100.0,
         };
-        let (signal, distance) = point.lookup_signal(Direction::Odd, &map);
+        let (signal, distance) = map.lookup_signal(&point, Direction::Odd);
         assert_eq!(signal.id, 2);
         assert_eq!(signal.block_id, 1);
         assert_eq!(distance, 2350.0);
@@ -659,7 +655,7 @@ mod tests {
             block_id: 3,
             offset_m: 1450.0,
         };
-        point.lookup_signal(Direction::Even, &map);
+        map.lookup_signal(&point, Direction::Even);
     }
 
     #[test]
@@ -670,7 +666,7 @@ mod tests {
             block_id: 1,
             offset_m: 200.0,
         };
-        point.lookup_signal(Direction::Odd, &map);
+        map.lookup_signal(&point, Direction::Odd);
     }
 
     #[test]

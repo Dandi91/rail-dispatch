@@ -145,9 +145,8 @@ impl Train {
         block_updates: &mut BlockUpdateQueue,
     ) -> Self {
         let stats = get_train_stats(&rail_vehicles);
-        let mut trace: Vec<TrackPoint> = state
-            .spawn_point
-            .walk(stats.length_m.max(1.0), state.direction.reverse(), block_map)
+        let mut trace: Vec<TrackPoint> = block_map
+            .walk(&state.spawn_point, stats.length_m.max(1.0), state.direction.reverse())
             .collect();
         let occupied: VecDeque<_> = trace.iter().map(|x| x.block_id).collect();
         occupied
@@ -257,7 +256,7 @@ impl Train {
 
         let dx = self.speed_mps * dt + 0.5 * self.acceleration_mps2 * dt.powi(2);
         if dx > 0.0 {
-            let (signal, distance_m) = self.front_position.lookup_signal(self.direction, map);
+            let (signal, distance_m) = map.lookup_signal(&self.front_position, self.direction);
             let allowed_speed_mps = signal.get_allowed_speed_mps();
             self.braking_distance_m = self.get_braking_distance(allowed_speed_mps);
             self.signal_distance_m = distance_m;
@@ -274,14 +273,12 @@ impl Train {
                 );
             }
 
-            let new_front = self.front_position.step_by(dx, self.direction, map);
+            let new_front = map.step_by(&self.front_position, dx, self.direction);
             if self.front_position.block_id != new_front.block_id {
                 block_updates.occupied(new_front.block_id, self.id);
                 self.occupied_blocks.push_front(new_front.block_id);
             }
-            let new_back = self
-                .front_position
-                .step_by(self.stats.length_m, self.direction.reverse(), map);
+            let new_back = map.step_by(&self.front_position, self.stats.length_m, self.direction.reverse());
             if self.back_position.block_id != new_back.block_id {
                 let freed = self.occupied_blocks.pop_back().unwrap();
                 block_updates.freed(freed, self.id);
