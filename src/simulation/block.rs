@@ -101,7 +101,10 @@ impl BlockMap {
             .0
             .drain(..)
             .map(|u| {
-                let vec = self.occupied_blocks.entry(u.block_id).or_insert(Vec::with_capacity(1));
+                let vec = self
+                    .occupied_blocks
+                    .entry(u.block_id)
+                    .or_insert_with(|| Vec::with_capacity(1));
                 let block_change = if u.state {
                     // block occupation
                     vec.push(u.train_id);
@@ -152,12 +155,11 @@ impl BlockMap {
     }
 
     fn is_signal_free(&self, signal: &TrackSignal) -> bool {
-        let result = TrackPoint::from(signal)
+        TrackPoint::from(signal)
             .walk(f64::INFINITY, signal.direction, self)
             .skip(1)
             .take_while_inclusive(|p| self.signals.get(&(p.block_id, signal.direction)).is_none())
-            .all(|p| self.is_block_free(p.block_id));
-        result
+            .all(|p| self.is_block_free(p.block_id))
     }
 
     pub fn from_level(level: &Level) -> Self {
@@ -280,7 +282,7 @@ impl BlockUpdateQueue {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct TrackSignal {
     pub id: SignalId,
     pub block_id: BlockId,
@@ -428,6 +430,7 @@ impl Iterator for TrackWalker<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::wrap;
 
     #[test]
     fn test_sparse_block_map() {
@@ -502,6 +505,40 @@ mod tests {
             chunks: vec![Chunk::default()],
             blocks: blocks.into_iter().collect(),
             signals: signals.map(|x| ((x.block_id, x.direction), x)).into(),
+            ..Default::default()
+        }
+    }
+
+    fn build_track_extended() -> BlockMap {
+        let blocks = (1..=4).map(|idx| Block {
+            id: idx,
+            length_m: 500.0,
+            next: Some(wrap(idx + 1, 1, 4)),
+            prev: Some(wrap(idx - 1, 1, 4)),
+            ..Default::default()
+        });
+        let signals = (1..=4).map(|idx| {
+            [
+                TrackSignal {
+                    id: idx * 2 - 1,
+                    block_id: idx,
+                    offset_m: 490.0,
+                    direction: Direction::Even,
+                    ..Default::default()
+                },
+                TrackSignal {
+                    id: idx * 2,
+                    block_id: idx,
+                    offset_m: 10.0,
+                    direction: Direction::Odd,
+                    ..Default::default()
+                },
+            ]
+        });
+        BlockMap {
+            chunks: vec![Chunk::default()],
+            blocks: blocks.into_iter().collect(),
+            signals: signals.flatten().map(|x| ((x.block_id, x.direction), x)).collect(),
             ..Default::default()
         }
     }
@@ -634,5 +671,31 @@ mod tests {
             offset_m: 200.0,
         };
         point.lookup_signal(Direction::Odd, &map);
+    }
+
+    #[test]
+    fn affected_signals_busy() {
+        let map = build_track_extended();
+        let block = map.get_block_by_id(&2).unwrap();
+        let mut result = map.find_affected_signals(block, true).collect_vec();
+        result.sort_by_key(|&signal| signal.block_id);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].block_id, 1);
+        assert_eq!(result[0].direction, Direction::Even);
+        assert_eq!(result[1].block_id, 3);
+        assert_eq!(result[1].direction, Direction::Odd);
+    }
+
+    #[test]
+    fn affected_signals_free() {
+        let map = build_track_extended();
+        let block = map.get_block_by_id(&2).unwrap();
+        let mut result = map.find_affected_signals(block, false).collect_vec();
+        result.sort_by_key(|&signal| signal.block_id);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].block_id, 1);
+        assert_eq!(result[0].direction, Direction::Even);
+        assert_eq!(result[1].block_id, 3);
+        assert_eq!(result[1].direction, Direction::Odd);
     }
 }

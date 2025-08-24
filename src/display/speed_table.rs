@@ -158,8 +158,8 @@ impl SpeedTable {
             }
         }
 
-        let speed_color = Color::new(0xBB, 0x00, 0x00, 0xFF);
-        let target_speed_color = Color::ORANGE;
+        let speed_color = Color::new(235, 64, 52, 255);
+        let target_speed_color = Color::new(235, 165, 35, 255);
         let max_speed_mps = 100.0 / 3.6;
 
         let speed_to_coord = |offset_y: i32, speed_mps: f64| -> i32 {

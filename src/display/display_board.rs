@@ -38,7 +38,7 @@ impl DisplayBoard {
         d.draw_texture_mode(thread, &mut texture, |mut d| {
             d.draw_rectangle(0, 50, 300, TRACK_WIDTH, Color::BLACK);
             for signal in self.signals.values() {
-                let lamp = self.lamps.get(&signal.lamp_id).unwrap();
+                let lamp = self.lamps.get(&signal.lamp_id).expect("unknown lamp_id");
                 signals.draw(&mut d, lamp.x, lamp.y, &signal.name, signal.direction);
             }
         });

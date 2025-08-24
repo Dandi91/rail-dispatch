@@ -30,9 +30,10 @@ pub struct Clock {
 
 impl Clock {
     pub fn new(start_point: Option<NaiveDateTime>) -> Self {
+        let default = Local::now().with_time(NaiveTime::default()).unwrap();
         Clock {
             elapsed_seconds: 0.0,
-            start_point: start_point.unwrap_or(Local::now().with_time(NaiveTime::default()).unwrap().naive_local()),
+            start_point: start_point.unwrap_or(default.naive_local()),
             periodic_events: VecDeque::new(),
         }
     }
