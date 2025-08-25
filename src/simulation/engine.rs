@@ -108,7 +108,7 @@ impl SimulationState {
     fn clear_all_signals(&self) {
         self.block_map.get_signals().for_each(|signal| {
             self.sender
-                .send(SimulationUpdate::LampState(signal.lamp_id, true))
+                .send(SimulationUpdate::LampState(signal.get_lamp_id(), true))
                 .unwrap();
         });
     }

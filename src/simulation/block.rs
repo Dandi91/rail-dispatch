@@ -154,7 +154,7 @@ impl BlockMap {
     }
 
     fn is_signal_free(&self, signal: &TrackSignal) -> bool {
-        self.walk(&signal.into(), f64::INFINITY, signal.direction)
+        self.walk(&signal.position, f64::INFINITY, signal.direction)
             .skip(1)
             .take_while_inclusive(|p| self.signals.get(&(p.block_id, signal.direction)).is_none())
             .all(|p| self.is_block_free(p.block_id))
@@ -173,9 +173,9 @@ impl BlockMap {
         let mut length = -self.get_available_length(start, reversed);
         for (idx, point) in self.walk(start, f64::INFINITY, direction).enumerate() {
             if let Some(signal) = self.signals.get(&(point.block_id, direction)) {
-                let diff = direction.apply_sign(signal.offset_m - start.offset_m);
+                let diff = direction.apply_sign(signal.position.offset_m - start.offset_m);
                 if idx > 0 || diff > 0.0 {
-                    length += self.get_available_length(&signal.into(), reversed);
+                    length += self.get_available_length(&signal.position, reversed);
                     return (signal, length);
                 }
             }
@@ -318,26 +318,31 @@ impl BlockUpdateQueue {
 }
 
 #[derive(Default, Debug, Clone)]
+pub struct SpeedControl {
+    allowed_kmh: f64,
+}
+
+#[derive(Default, Debug, Clone)]
 pub struct TrackSignal {
-    pub id: SignalId,
-    pub block_id: BlockId,
-    pub offset_m: f64,
-    pub lamp_id: LampId,
-    pub direction: Direction,
-    pub name: String,
-    pub allowed_speed_kmh: f64,
+    id: SignalId,
+    position: TrackPoint,
+    lamp_id: LampId,
+    direction: Direction,
+    name: String,
+    speed_ctrl: SpeedControl,
 }
 
 impl From<&SignalData> for TrackSignal {
     fn from(value: &SignalData) -> Self {
         TrackSignal {
             id: value.id,
-            block_id: value.block_id,
-            offset_m: value.offset_m,
+            position: TrackPoint {
+                block_id: value.block_id,
+                offset_m: value.offset_m,
+            },
             lamp_id: value.lamp_id,
             direction: value.direction,
             name: value.name.clone(),
-            allowed_speed_kmh: 80.0,
             ..Default::default()
         }
     }
@@ -345,27 +350,22 @@ impl From<&SignalData> for TrackSignal {
 
 impl TrackSignal {
     pub fn get_allowed_speed_mps(&self) -> f64 {
-        self.allowed_speed_kmh / 3.6
+        self.speed_ctrl.allowed_kmh / 3.6
     }
 
     pub fn get_name(&self) -> &str {
         self.name.as_str()
     }
+
+    pub fn get_lamp_id(&self) -> LampId {
+        self.lamp_id
+    }
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Clone, Default, Debug)]
 pub struct TrackPoint {
     pub block_id: BlockId,
     pub offset_m: f64,
-}
-
-impl From<&TrackSignal> for TrackPoint {
-    fn from(value: &TrackSignal) -> Self {
-        TrackPoint {
-            block_id: value.block_id,
-            offset_m: value.offset_m,
-        }
-    }
 }
 
 pub struct TrackWalker<'a> {
@@ -484,15 +484,19 @@ mod tests {
         let signals = [
             TrackSignal {
                 id: 1,
-                block_id: 3,
-                offset_m: 1400.0,
+                position: TrackPoint {
+                    block_id: 3,
+                    offset_m: 1400.0,
+                },
                 direction: Direction::Even,
                 ..Default::default()
             },
             TrackSignal {
                 id: 2,
-                block_id: 1,
-                offset_m: 250.0,
+                position: TrackPoint {
+                    block_id: 1,
+                    offset_m: 250.0,
+                },
                 direction: Direction::Odd,
                 ..Default::default()
             },
@@ -500,7 +504,7 @@ mod tests {
         BlockMap {
             chunks: vec![Chunk::default()],
             blocks: blocks.into_iter().collect(),
-            signals: signals.map(|x| ((x.block_id, x.direction), x)).into(),
+            signals: signals.map(|x| ((x.position.block_id, x.direction), x)).into(),
             ..Default::default()
         }
     }
@@ -517,15 +521,19 @@ mod tests {
             [
                 TrackSignal {
                     id: idx * 2 - 1,
-                    block_id: idx,
-                    offset_m: 490.0,
+                    position: TrackPoint {
+                        block_id: idx,
+                        offset_m: 490.0,
+                    },
                     direction: Direction::Even,
                     ..Default::default()
                 },
                 TrackSignal {
                     id: idx * 2,
-                    block_id: idx,
-                    offset_m: 10.0,
+                    position: TrackPoint {
+                        block_id: idx,
+                        offset_m: 10.0,
+                    },
                     direction: Direction::Odd,
                     ..Default::default()
                 },
@@ -534,7 +542,10 @@ mod tests {
         BlockMap {
             chunks: vec![Chunk::default()],
             blocks: blocks.into_iter().collect(),
-            signals: signals.flatten().map(|x| ((x.block_id, x.direction), x)).collect(),
+            signals: signals
+                .flatten()
+                .map(|x| ((x.position.block_id, x.direction), x))
+                .collect(),
             ..Default::default()
         }
     }
@@ -630,7 +641,7 @@ mod tests {
         };
         let (signal, distance) = map.lookup_signal(&point, Direction::Even);
         assert_eq!(signal.id, 1);
-        assert_eq!(signal.block_id, 3);
+        assert_eq!(signal.position.block_id, 3);
         assert_eq!(distance, 2700.0);
     }
 
@@ -643,7 +654,7 @@ mod tests {
         };
         let (signal, distance) = map.lookup_signal(&point, Direction::Odd);
         assert_eq!(signal.id, 2);
-        assert_eq!(signal.block_id, 1);
+        assert_eq!(signal.position.block_id, 1);
         assert_eq!(distance, 2350.0);
     }
 
@@ -674,11 +685,11 @@ mod tests {
         let map = build_track_extended();
         let block = map.get_block_by_id(&2).unwrap();
         let mut result = map.find_affected_signals(block, true).collect_vec();
-        result.sort_by_key(|&signal| signal.block_id);
+        result.sort_by_key(|&signal| signal.position.block_id);
         assert_eq!(result.len(), 2);
-        assert_eq!(result[0].block_id, 1);
+        assert_eq!(result[0].position.block_id, 1);
         assert_eq!(result[0].direction, Direction::Even);
-        assert_eq!(result[1].block_id, 3);
+        assert_eq!(result[1].position.block_id, 3);
         assert_eq!(result[1].direction, Direction::Odd);
     }
 
@@ -687,11 +698,11 @@ mod tests {
         let map = build_track_extended();
         let block = map.get_block_by_id(&2).unwrap();
         let mut result = map.find_affected_signals(block, false).collect_vec();
-        result.sort_by_key(|&signal| signal.block_id);
+        result.sort_by_key(|&signal| signal.position.block_id);
         assert_eq!(result.len(), 2);
-        assert_eq!(result[0].block_id, 1);
+        assert_eq!(result[0].position.block_id, 1);
         assert_eq!(result[0].direction, Direction::Even);
-        assert_eq!(result[1].block_id, 3);
+        assert_eq!(result[1].position.block_id, 3);
         assert_eq!(result[1].direction, Direction::Odd);
     }
 }
