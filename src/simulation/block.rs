@@ -2,7 +2,8 @@ use crate::common::{Direction, TrainId};
 use crate::display::lamp::LampId;
 use crate::level::{BlockData, ConnectionData, Level, SignalData};
 use itertools::Itertools;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
+use crate::simulation::updates::BlockUpdateQueue;
 
 pub type BlockId = usize;
 pub type SignalId = usize;
@@ -98,8 +99,7 @@ impl BlockMap {
 
     pub fn process_updates(&mut self, updates: &mut BlockUpdateQueue) -> impl Iterator<Item = (LampId, bool)> {
         updates
-            .0
-            .drain(..)
+            .drain()
             .map(|u| {
                 let vec = self
                     .occupied_blocks
@@ -277,43 +277,6 @@ impl Block {
             block_id: self.id,
             offset_m: self.length_m / 2.0,
         }
-    }
-}
-
-struct BlockUpdate {
-    block_id: BlockId,
-    train_id: TrainId,
-    state: bool,
-}
-
-pub struct BlockUpdateQueue(VecDeque<BlockUpdate>);
-impl BlockUpdateQueue {
-    pub fn new() -> Self {
-        BlockUpdateQueue(VecDeque::new())
-    }
-
-    pub fn with_capacity(capacity: usize) -> Self {
-        BlockUpdateQueue(VecDeque::with_capacity(capacity))
-    }
-
-    pub fn occupied(&mut self, block_id: BlockId, train_id: TrainId) {
-        self.0.push_back(BlockUpdate {
-            block_id,
-            train_id,
-            state: true,
-        });
-    }
-
-    pub fn freed(&mut self, block_id: BlockId, train_id: TrainId) {
-        self.0.push_back(BlockUpdate {
-            block_id,
-            train_id,
-            state: false,
-        });
-    }
-
-    pub fn get_capacity(&self) -> usize {
-        self.0.capacity()
     }
 }
 

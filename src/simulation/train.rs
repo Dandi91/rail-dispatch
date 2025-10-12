@@ -1,6 +1,7 @@
 use crate::common::{Direction, TrainId};
-use crate::simulation::block::{BlockId, BlockMap, BlockUpdateQueue, TrackPoint};
+use crate::simulation::block::{BlockId, BlockMap, TrackPoint};
 use std::collections::VecDeque;
+use crate::simulation::updates::BlockUpdateQueue;
 
 #[derive(Default)]
 pub struct TrainControls {

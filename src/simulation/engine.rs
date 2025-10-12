@@ -4,8 +4,9 @@ use crate::display::speed_table::{KEEP_TAIL_S, MAX_HORIZONTAL_MINUTES, MAX_HORIZ
 use crate::display::train::{TrainDisplayState, TrainKind};
 use crate::event::{Command, SimulationUpdate};
 use crate::level::Level;
-use crate::simulation::block::{BlockMap, BlockUpdateQueue, TrackPoint};
+use crate::simulation::block::{BlockMap, TrackPoint};
 use crate::simulation::train::{RailVehicle, Train, TrainSpawnState, TrainStatusUpdate};
+use crate::simulation::updates::UpdateQueues;
 use chrono::{TimeDelta, Timelike};
 use itertools::Itertools;
 use std::sync::mpsc;
@@ -28,7 +29,7 @@ struct SimulationState {
     clock: Clock,
     block_map: BlockMap,
     trains: Vec<Train>,
-    block_updates: BlockUpdateQueue,
+    updates: UpdateQueues,
 }
 
 #[derive(PartialEq)]
@@ -71,7 +72,7 @@ impl SimulationState {
             clock,
             block_map: init.block_map,
             trains: Vec::new(),
-            block_updates: BlockUpdateQueue::with_capacity(8),
+            updates: UpdateQueues::new(),
         }
     }
 
@@ -141,10 +142,10 @@ impl SimulationState {
             // run simulation based on the actual dt
             self.trains
                 .iter_mut()
-                .for_each(|train| train.update(sim_dt, &self.block_map, &mut self.block_updates));
+                .for_each(|train| train.update(sim_dt, &self.block_map, &mut self.updates.block_updates));
 
             self.block_map
-                .process_updates(&mut self.block_updates)
+                .process_updates(&mut self.updates.block_updates)
                 .for_each(|(lamp_id, state)| {
                     self.sender.send(SimulationUpdate::LampState(lamp_id, state)).unwrap();
                 });
@@ -163,7 +164,7 @@ impl SimulationState {
                 });
         }
         println!("Shutting down simulation");
-        println!("Block updates capacity: {}", self.block_updates.get_capacity())
+        self.updates.report();
     }
 
     fn collect_train_updates(&mut self) -> Vec<TrainStatusUpdate> {
@@ -186,7 +187,7 @@ impl SimulationState {
             spawn_state,
             cars,
             &self.block_map,
-            &mut self.block_updates,
+            &mut self.updates.block_updates,
         );
         train.set_target_speed_kmh(80.0);
         self.trains.push(train);
@@ -204,7 +205,7 @@ impl SimulationState {
     fn despawn_train_by_id(&mut self, id: TrainId) {
         if let Some((pos, ..)) = self.trains.iter().find_position(|x| x.id == id) {
             let train = self.trains.swap_remove(pos);
-            train.despawn(&mut self.block_updates);
+            train.despawn(&mut self.updates.block_updates);
             self.sender.send(SimulationUpdate::UnregisterTrain(id)).unwrap();
         }
     }
