@@ -3750,7 +3750,6 @@ name = "rail-dispatch"
 version = "0.1.0"
 dependencies = [
  "bevy",
- "bevy_asset",
  "chrono",
  "event-listener",
  "futures-lite",
@@ -3759,6 +3758,7 @@ dependencies = [
  "rand",
  "serde",
  "serde_repr",
+ "thiserror 2.0.17",
  "toml",
 ]
 

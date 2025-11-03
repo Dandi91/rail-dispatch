@@ -1,10 +1,11 @@
 use serde_repr::Deserialize_repr;
 use std::ops::Neg;
 use std::time::Instant;
+use bevy::reflect::Reflect;
 
 pub type TrainId = usize;
 
-#[derive(Deserialize_repr, PartialEq, Copy, Clone, Default, Debug, Hash, Eq)]
+#[derive(Deserialize_repr, Reflect, PartialEq, Copy, Clone, Default, Debug, Hash, Eq)]
 #[repr(i8)]
 pub enum Direction {
     #[default]

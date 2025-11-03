@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use serde::Deserialize;
 
-const DEFAULT_LAMP_HEIGHT: f32 = 4.0;
+const DEFAULT_LAMP_HEIGHT: f32 = 5.0;
 
 fn default_lamp_height() -> f32 {
     DEFAULT_LAMP_HEIGHT
@@ -16,14 +16,14 @@ pub const LAMP_COLOR_YELLOW: Color = Color::srgba_u8(0xFF, 0xFF, 0x40, 0xFF);
 pub const LAMP_COLOR_RED: Color = Color::srgba_u8(0xFF, 0x20, 0x20, 0xFF);
 pub const LAMP_COLOR_GREEN: Color = Color::srgba_u8(0x00, 0xFF, 0x00, 0xFF);
 
-#[derive(Clone)]
+#[derive(Reflect, Clone)]
 pub enum LampState {
     ON(Color),
     OFF(Color),
     FLASHING(Color),
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Reflect, Clone)]
 pub struct Lamp {
     pub id: LampId,
     pub x: f32,
@@ -39,7 +39,7 @@ pub struct Lamp {
 pub type LampId = usize;
 
 impl Lamp {
-    fn get_color(&self, flash_state: bool) -> Color {
+    pub fn get_color(&self, flash_state: bool) -> Color {
         match self.state {
             LampState::ON(color) | LampState::OFF(color) => color,
             LampState::FLASHING(color) => {

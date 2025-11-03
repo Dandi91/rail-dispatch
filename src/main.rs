@@ -4,15 +4,17 @@ mod common;
 mod display;
 // mod event;
 // mod game_state;
-mod level;
 mod assets;
+mod level;
 // mod simulation;
 
+use crate::assets::{AssetHandles, AssetLoadingPlugin, LoadingState};
+use crate::display::lamp::{LAMP_COLOR_GRAY, LAMP_COLOR_RED};
+use crate::level::{Level, LevelPlugin};
+use bevy::asset::AssetPlugin;
 use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin, FrameTimeGraphConfig};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
-use bevy_asset::AssetPlugin;
-use crate::assets::{AssetLoadingPlugin, LoadingHandles, LoadingState};
 
 fn main() {
     App::new()
@@ -33,7 +35,7 @@ fn main() {
                 },
             },
         ))
-        .add_plugins(AssetLoadingPlugin)
+        .add_plugins((LevelPlugin, AssetLoadingPlugin))
         .add_systems(OnExit(LoadingState::Loading), setup)
         .run();
 }
@@ -41,14 +43,15 @@ fn main() {
 fn setup(
     mut commands: Commands,
     mut window: Single<&mut Window, With<PrimaryWindow>>,
-    image_handles: Res<LoadingHandles>,
+    handles: Res<AssetHandles>,
     images: Res<Assets<Image>>,
+    levels: Res<Assets<Level>>,
 ) {
     window.title = "Rail Dispatch".to_string();
 
     commands.spawn(Camera2d);
 
-    let board = image_handles.board_handle.clone();
+    let board = handles.board.clone();
     let scale = 2.0;
     let size = images.get(&board).unwrap().size_f32() / scale;
     commands.spawn((
@@ -60,12 +63,29 @@ fn setup(
         },
     ));
 
-    commands.spawn((
-        Sprite::from_color(Color::WHITE, Vec2::ONE),
-        Transform {
-            translation: Vec3::new(0.0, 0.0, 1.0),
-            scale: Vec3::new(120.0, 20.0, 1.0),
-            ..default()
-        },
-    ));
+    let level = levels.get(&handles.level).unwrap();
+    for lamp in level.lamps.iter() {
+        let size = Vec2::new(lamp.width, lamp.height);
+        let pos = to_world_space(Vec2::new(lamp.x, -lamp.y - 1.0), size, window.size());
+        commands.spawn((
+            Sprite {
+                image: handles.lamp.clone(),
+                color: lamp.get_color(false),
+                image_mode: SpriteImageMode::Sliced(TextureSlicer {
+                    border: BorderRect::axes(3.0, 2.0),
+                    ..default()
+                }),
+                custom_size: Some(size),
+                ..default()
+            },
+            Transform {
+                translation: pos.extend(1.0),
+                ..default()
+            },
+        ));
+    }
+}
+
+pub fn to_world_space(pos: Vec2, size: Vec2, window_size: Vec2) -> Vec2 {
+    (window_size - size) * Vec2::new(-0.5, 0.5) + pos
 }
