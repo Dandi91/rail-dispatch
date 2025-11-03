@@ -1,0 +1,134 @@
+use bevy::prelude::*;
+use bevy::tasks::AsyncComputeTaskPool;
+use event_listener::Event;
+use futures_lite::Future;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+
+/// This is required to support both sync and async.
+///
+/// For sync only the easiest implementation is
+/// [`Arc<()>`] and use [`Arc::strong_count`] for completion.
+/// [`Arc<Atomic>`] is a more robust alternative.
+#[derive(Debug, Resource, Deref)]
+struct AssetBarrier(Arc<AssetBarrierInner>);
+
+/// This guard is to be acquired by [`AssetServer::load_acquire`]
+/// and dropped once finished.
+#[derive(Debug, Deref)]
+struct AssetBarrierGuard(Arc<AssetBarrierInner>);
+
+/// Tracks how many guards are remaining.
+#[derive(Debug, Resource)]
+struct AssetBarrierInner {
+    count: AtomicU32,
+    /// This can be omitted if async is not needed.
+    notify: Event,
+}
+
+/// State of loading asynchronously.
+#[derive(Debug, Resource)]
+struct AsyncLoadingState(Arc<AtomicBool>);
+
+impl AssetBarrier {
+    /// Create an [`AssetBarrier`] with a [`AssetBarrierGuard`].
+    fn new() -> (AssetBarrier, AssetBarrierGuard) {
+        let inner = Arc::new(AssetBarrierInner {
+            count: AtomicU32::new(1),
+            notify: Event::new(),
+        });
+        (AssetBarrier(inner.clone()), AssetBarrierGuard(inner))
+    }
+
+    /// Returns true if all [`AssetBarrierGuard`] is dropped.
+    fn is_ready(&self) -> bool {
+        self.count.load(Ordering::Acquire) == 0
+    }
+
+    /// Wait for all [`AssetBarrierGuard`]s to be dropped asynchronously.
+    fn wait_async(&self) -> impl Future<Output = ()> + 'static {
+        let shared = self.0.clone();
+        async move {
+            loop {
+                // Acquire an event listener.
+                let listener = shared.notify.listen();
+                // If all barrier guards are dropped, return
+                if shared.count.load(Ordering::Acquire) == 0 {
+                    return;
+                }
+                // Wait for the last barrier guard to notify us
+                listener.await;
+            }
+        }
+    }
+}
+
+// Increment count on clone.
+impl Clone for AssetBarrierGuard {
+    fn clone(&self) -> Self {
+        self.count.fetch_add(1, Ordering::AcqRel);
+        AssetBarrierGuard(self.0.clone())
+    }
+}
+
+// Decrement count on drop.
+impl Drop for AssetBarrierGuard {
+    fn drop(&mut self) {
+        let prev = self.count.fetch_sub(1, Ordering::AcqRel);
+        if prev == 1 {
+            // Notify all listeners if count reaches 0.
+            self.notify.notify(usize::MAX);
+        }
+    }
+}
+#[derive(Clone, Eq, PartialEq, Debug, Hash, Default, States)]
+pub enum LoadingState {
+    #[default]
+    Loading,
+    Loaded,
+}
+
+#[derive(Resource)]
+pub struct LoadingHandles {
+    pub board_handle: Handle<Image>,
+}
+
+pub struct AssetLoadingPlugin;
+
+impl Plugin for AssetLoadingPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_state::<LoadingState>()
+            .add_systems(Startup, setup_assets)
+            .add_systems(Update, get_async_loading_state.run_if(in_state(LoadingState::Loading)));
+    }
+}
+
+fn setup_assets(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let (barrier, guard) = AssetBarrier::new();
+    commands.insert_resource(LoadingHandles {
+        board_handle: asset_server.load_acquire("board.png", guard.clone()),
+    });
+
+    let future = barrier.wait_async();
+    commands.insert_resource(barrier);
+
+    let loading_state = Arc::new(AtomicBool::new(false));
+    commands.insert_resource(AsyncLoadingState(loading_state.clone()));
+
+    AsyncComputeTaskPool::get()
+        .spawn(async move {
+            future.await;
+            // Notify via `AsyncLoadingState`
+            loading_state.store(true, Ordering::Release);
+        })
+        .detach();
+
+    info!("Asset load started");
+}
+
+fn get_async_loading_state(state: Res<AsyncLoadingState>, mut next_loading_state: ResMut<NextState<LoadingState>>) {
+    if state.0.load(Ordering::Acquire) {
+        info!("Asset load complete");
+        next_loading_state.set(LoadingState::Loaded);
+    }
+}

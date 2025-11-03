@@ -1,4 +1,4 @@
-use raylib::prelude::*;
+use bevy::prelude::*;
 use serde::Deserialize;
 
 const DEFAULT_LAMP_HEIGHT: f32 = 4.0;
@@ -11,10 +11,10 @@ fn default_lamp_state() -> LampState {
     LampState::OFF(LAMP_COLOR_GRAY)
 }
 
-pub const LAMP_COLOR_GRAY: Color = Color::new(0x55, 0x55, 0x55, 0xFF);
-pub const LAMP_COLOR_YELLOW: Color = Color::new(0xFF, 0xFF, 0x40, 0xFF);
-pub const LAMP_COLOR_RED: Color = Color::new(0xFF, 0x20, 0x20, 0xFF);
-pub const LAMP_COLOR_GREEN: Color = Color::new(0x00, 0xFF, 0x00, 0xFF);
+pub const LAMP_COLOR_GRAY: Color = Color::srgba_u8(0x55, 0x55, 0x55, 0xFF);
+pub const LAMP_COLOR_YELLOW: Color = Color::srgba_u8(0xFF, 0xFF, 0x40, 0xFF);
+pub const LAMP_COLOR_RED: Color = Color::srgba_u8(0xFF, 0x20, 0x20, 0xFF);
+pub const LAMP_COLOR_GREEN: Color = Color::srgba_u8(0x00, 0xFF, 0x00, 0xFF);
 
 #[derive(Clone)]
 pub enum LampState {
@@ -52,12 +52,12 @@ impl Lamp {
         }
     }
 
-    pub fn draw(&self, d: &mut RaylibDrawHandle, flash_state: bool) {
-        d.draw_rectangle_rounded(
-            Rectangle::new(self.x, self.y + 1.0, self.width, self.height),
-            1.0,
-            4,
-            self.get_color(flash_state),
-        )
-    }
+    // pub fn draw(&self, d: &mut RaylibDrawHandle, flash_state: bool) {
+    //     d.draw_rectangle_rounded(
+    //         Rectangle::new(self.x, self.y + 1.0, self.width, self.height),
+    //         1.0,
+    //         4,
+    //         self.get_color(flash_state),
+    //     )
+    // }
 }

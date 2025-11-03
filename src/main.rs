@@ -1,33 +1,71 @@
-#![windows_subsystem = "windows"]
-
-mod clock;
+// mod clock;
 mod common;
-mod consts;
+// mod consts;
 mod display;
-mod event;
-mod game_state;
+// mod event;
+// mod game_state;
 mod level;
-mod simulation;
+mod assets;
+// mod simulation;
 
-use crate::game_state::GameState;
-use raylib::prelude::*;
+use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin, FrameTimeGraphConfig};
+use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
+use bevy_asset::AssetPlugin;
+use crate::assets::{AssetLoadingPlugin, LoadingHandles, LoadingState};
 
 fn main() {
-    let title = "Rail Dispatch";
-    let (width, height) = (1440, 960);
-    let (mut rl, thread) = init().size(width, height).title(title).resizable().build();
-    rl.set_target_fps(60);
+    App::new()
+        .add_plugins((
+            DefaultPlugins.set(AssetPlugin {
+                file_path: "resources".to_string(),
+                ..default()
+            }),
+            FpsOverlayPlugin {
+                config: FpsOverlayConfig {
+                    text_config: TextFont::from_font_size(20.0),
+                    text_color: Color::srgb(0.0, 1.0, 0.0),
+                    frame_time_graph_config: FrameTimeGraphConfig {
+                        enabled: false,
+                        ..default()
+                    },
+                    ..default()
+                },
+            },
+        ))
+        .add_plugins(AssetLoadingPlugin)
+        .add_systems(OnExit(LoadingState::Loading), setup)
+        .run();
+}
 
-    let mut state = GameState::new(width as u32, height as u32);
-    state.start_game();
+fn setup(
+    mut commands: Commands,
+    mut window: Single<&mut Window, With<PrimaryWindow>>,
+    image_handles: Res<LoadingHandles>,
+    images: Res<Assets<Image>>,
+) {
+    window.title = "Rail Dispatch".to_string();
 
-    while !rl.window_should_close() {
-        let mut d = rl.begin_drawing(&thread);
-        state.process_updates(&d);
-        state.process_input(&mut d);
-        state.draw(&mut d, &thread);
-        d.draw_fps(3, 5);
-    }
+    commands.spawn(Camera2d);
 
-    state.stop_game();
+    let board = image_handles.board_handle.clone();
+    let scale = 2.0;
+    let size = images.get(&board).unwrap().size_f32() / scale;
+    commands.spawn((
+        Sprite::from(board),
+        Transform {
+            translation: ((window.size() - size) * Vec2::new(-0.5, 0.5)).extend(0.0),
+            scale: Vec3::ONE / scale,
+            ..default()
+        },
+    ));
+
+    commands.spawn((
+        Sprite::from_color(Color::WHITE, Vec2::ONE),
+        Transform {
+            translation: Vec3::new(0.0, 0.0, 1.0),
+            scale: Vec3::new(120.0, 20.0, 1.0),
+            ..default()
+        },
+    ));
 }

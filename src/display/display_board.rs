@@ -4,10 +4,10 @@ use crate::display::lamp::{LAMP_COLOR_GRAY, LAMP_COLOR_GREEN, LAMP_COLOR_RED, La
 use crate::display::signal::TrackSignalCommonState;
 use crate::level::{Level, SignalData};
 use chrono::NaiveDateTime;
-use raylib::prelude::*;
+use bevy::prelude::*;
 use std::collections::HashMap;
 
-const BOARD_BACKGROUND: Color = Color::new(0x64, 0xA0, 0x64, 0xFF);
+const BOARD_BACKGROUND: Color = Color::srgba_u8(0x64, 0xA0, 0x64, 0xFF);
 const FLASH_INTERVAL: f64 = 0.65;
 
 pub struct DisplayBoard {
