@@ -7,13 +7,17 @@ mod display;
 mod assets;
 mod level;
 mod simulation;
+// pub mod signal;
+// pub mod speed_table;
+mod time_controls;
 
 use crate::assets::{AssetHandles, AssetLoadingPlugin, LoadingState};
 use crate::display::lamp::{LampId, LAMP_COLOR_GRAY, LAMP_COLOR_RED};
 use crate::level::{Level, LevelPlugin};
 use crate::simulation::block::BlockMap;
-use crate::simulation::train::{NextTrainId, Train, spawn_train};
+use crate::simulation::train::{spawn_train, NextTrainId, Train};
 use crate::simulation::updates::UpdateQueues;
+use crate::time_controls::TimeControlsPlugin;
 use bevy::asset::AssetPlugin;
 use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin, FrameTimeGraphConfig};
 use bevy::prelude::*;
@@ -39,9 +43,12 @@ fn main() {
                 },
             },
         ))
-        .add_plugins((LevelPlugin, AssetLoadingPlugin))
+        .add_plugins((LevelPlugin, AssetLoadingPlugin, TimeControlsPlugin))
         .add_systems(OnExit(LoadingState::Loading), setup)
-        .add_systems(Update, (keyboard_handling, block_updates).run_if(in_state(LoadingState::Loaded)))
+        .add_systems(
+            Update,
+            (keyboard_handling, block_updates).run_if(in_state(LoadingState::Loaded)),
+        )
         .add_systems(FixedUpdate, update.run_if(in_state(LoadingState::Loaded)))
         .run();
 }

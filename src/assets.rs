@@ -1,10 +1,10 @@
+use crate::level::Level;
 use bevy::prelude::*;
 use bevy::tasks::AsyncComputeTaskPool;
 use event_listener::Event;
 use futures_lite::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use crate::level::Level;
 
 #[derive(Debug, Resource, Deref)]
 struct AssetBarrier(Arc<AssetBarrierInner>);

@@ -1,10 +1,10 @@
 use crate::common::{Direction, TrainId};
 use crate::display::lamp::LampId;
 use crate::level::{BlockData, ConnectionData, Level, SignalData};
+use crate::simulation::updates::BlockUpdateQueue;
+use bevy::prelude::*;
 use itertools::Itertools;
 use std::collections::HashMap;
-use bevy::prelude::*;
-use crate::simulation::updates::BlockUpdateQueue;
 
 pub type BlockId = usize;
 pub type SignalId = usize;

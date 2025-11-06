@@ -1,11 +1,6 @@
 use crate::common::Direction;
 use crate::display::lamp::Lamp;
-use bevy::{
-    asset::io::Reader,
-    asset::AssetLoader,
-    asset::LoadContext,
-    prelude::*
-};
+use bevy::{asset::AssetLoader, asset::LoadContext, asset::io::Reader, prelude::*};
 use futures_lite::AsyncReadExt;
 use serde::Deserialize;
 use thiserror::Error;
@@ -48,7 +43,6 @@ impl Plugin for LevelPlugin {
         app.init_asset::<Level>().register_asset_loader(LevelLoader);
     }
 }
-
 
 struct LevelLoader;
 

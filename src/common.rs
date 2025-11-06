@@ -1,7 +1,7 @@
+use bevy::reflect::Reflect;
 use serde_repr::Deserialize_repr;
 use std::ops::Neg;
 use std::time::Instant;
-use bevy::reflect::Reflect;
 
 pub type TrainId = u64;
 
