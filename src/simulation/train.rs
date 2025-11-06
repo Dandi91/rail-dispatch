@@ -1,7 +1,9 @@
 use crate::common::{Direction, TrainId};
 use crate::simulation::block::{BlockId, BlockMap, TrackPoint};
 use std::collections::VecDeque;
-use crate::simulation::updates::BlockUpdateQueue;
+use bevy::prelude::*;
+use crate::display::train::TrainKind;
+use crate::simulation::updates::{BlockUpdateQueue, UpdateQueues};
 
 #[derive(Default)]
 pub struct TrainControls {
@@ -100,6 +102,8 @@ fn get_train_stats<'a, I: IntoIterator<Item = &'a RailVehicle>>(vehicles: I) -> 
 }
 
 pub struct TrainSpawnState {
+    pub number: String,
+    pub kind: TrainKind,
     pub speed_mps: f64,
     pub direction: Direction,
     pub spawn_point: TrackPoint,
@@ -115,8 +119,27 @@ pub struct TrainStatusUpdate {
     pub signal_distance_m: f64,
 }
 
+#[derive(Resource)]
+pub struct NextTrainId(TrainId);
+
+impl NextTrainId {
+    pub fn new() -> Self {
+        NextTrainId(1)
+    }
+
+    pub fn next(&mut self) -> TrainId {
+        let result = self.0;
+        self.0 += 1;
+        result
+    }
+}
+
+
+#[derive(Component)]
 pub struct Train {
     pub id: TrainId,
+    pub number: String,
+    kind: TrainKind,
 
     controls: TrainControls,
     speed_mps: f64,
@@ -157,6 +180,8 @@ impl Train {
 
         Train {
             id,
+            number: state.number,
+            kind: state.kind,
             controls: Default::default(),
             speed_mps: state.speed_mps,
             target_speed_mps: 0.0,
@@ -306,4 +331,32 @@ impl Train {
             None
         }
     }
+}
+
+
+pub fn spawn_train(train_id: TrainId, block_map: &BlockMap, updates: &mut UpdateQueues) -> Train {
+    let spawn_state = TrainSpawnState {
+        number: rand::random_range(1000..=9999).to_string(),
+        kind: TrainKind::Cargo,
+        direction: Direction::Even,
+        speed_mps: 0.0,
+        spawn_point: TrackPoint {
+            block_id: 2,
+            offset_m: 600.0,
+        },
+    };
+
+    let mut cars: Vec<RailVehicle> = Vec::with_capacity(100);
+    cars.extend([RailVehicle::new_locomotive(138_000.0, 18.15, 2250.0, 375.0); 2]);
+    cars.extend([RailVehicle::new_car(30_000.0, 15.0, 70_000.0); 60]);
+
+    let mut train = Train::spawn_at(
+        train_id,
+        spawn_state,
+        cars,
+        block_map,
+        &mut updates.block_updates,
+    );
+    train.set_target_speed_kmh(80.0);
+    train
 }

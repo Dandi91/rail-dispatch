@@ -6,15 +6,19 @@ mod display;
 // mod game_state;
 mod assets;
 mod level;
-// mod simulation;
+mod simulation;
 
 use crate::assets::{AssetHandles, AssetLoadingPlugin, LoadingState};
-use crate::display::lamp::{LAMP_COLOR_GRAY, LAMP_COLOR_RED};
+use crate::display::lamp::{LampId, LAMP_COLOR_GRAY, LAMP_COLOR_RED};
 use crate::level::{Level, LevelPlugin};
+use crate::simulation::block::BlockMap;
+use crate::simulation::train::{NextTrainId, Train, spawn_train};
+use crate::simulation::updates::UpdateQueues;
 use bevy::asset::AssetPlugin;
 use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin, FrameTimeGraphConfig};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
+use std::collections::HashMap;
 
 fn main() {
     App::new()
@@ -37,6 +41,8 @@ fn main() {
         ))
         .add_plugins((LevelPlugin, AssetLoadingPlugin))
         .add_systems(OnExit(LoadingState::Loading), setup)
+        .add_systems(Update, (keyboard_handling, block_updates).run_if(in_state(LoadingState::Loaded)))
+        .add_systems(FixedUpdate, update.run_if(in_state(LoadingState::Loaded)))
         .run();
 }
 
@@ -64,28 +70,85 @@ fn setup(
     ));
 
     let level = levels.get(&handles.level).unwrap();
+    commands.insert_resource(BlockMap::from_level(level));
+    commands.insert_resource(NextTrainId::new());
+    commands.insert_resource(UpdateQueues::new());
+
+    let mut lamp_mapper = LampMapper(HashMap::new());
     for lamp in level.lamps.iter() {
         let size = Vec2::new(lamp.width, lamp.height);
         let pos = to_world_space(Vec2::new(lamp.x, -lamp.y - 1.0), size, window.size());
-        commands.spawn((
-            Sprite {
-                image: handles.lamp.clone(),
-                color: lamp.get_color(false),
-                image_mode: SpriteImageMode::Sliced(TextureSlicer {
-                    border: BorderRect::axes(3.0, 2.0),
+        let entity = commands
+            .spawn((
+                Lamp,
+                Sprite {
+                    image: handles.lamp.clone(),
+                    color: lamp.get_color(false),
+                    image_mode: SpriteImageMode::Sliced(TextureSlicer {
+                        border: BorderRect::axes(3.0, 2.0),
+                        ..default()
+                    }),
+                    custom_size: Some(size),
                     ..default()
-                }),
-                custom_size: Some(size),
-                ..default()
-            },
-            Transform {
-                translation: pos.extend(1.0),
-                ..default()
-            },
-        ));
+                },
+                Transform {
+                    translation: pos.extend(1.0),
+                    ..default()
+                },
+            ))
+            .id();
+        lamp_mapper.0.insert(lamp.id, entity);
+    }
+
+    commands.insert_resource(lamp_mapper);
+}
+
+#[derive(Component)]
+struct Lamp;
+
+#[derive(Resource)]
+struct LampMapper(HashMap<LampId, Entity>);
+
+fn to_world_space(pos: Vec2, size: Vec2, window_size: Vec2) -> Vec2 {
+    (window_size - size) * Vec2::new(-0.5, 0.5) + pos
+}
+
+fn keyboard_handling(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    block_map: Res<BlockMap>,
+    mut train_id: ResMut<NextTrainId>,
+    mut update_queues: ResMut<UpdateQueues>,
+    mut commands: Commands,
+) {
+    if keyboard_input.just_pressed(KeyCode::KeyG) {
+        let train = spawn_train(train_id.next(), &block_map, &mut update_queues);
+        println!("Train {} spawned with ID {}", train.number, train.id);
+        commands.spawn(train);
     }
 }
 
-pub fn to_world_space(pos: Vec2, size: Vec2, window_size: Vec2) -> Vec2 {
-    (window_size - size) * Vec2::new(-0.5, 0.5) + pos
+fn update(
+    query: Query<&mut Train>,
+    time: Res<Time>,
+    block_map: Res<BlockMap>,
+    mut update_queues: ResMut<UpdateQueues>,
+) {
+    for mut train in query {
+        train.update(time.delta_secs_f64(), &block_map, &mut update_queues.block_updates);
+    }
+}
+
+fn block_updates(
+    mut query: Query<&mut Sprite, With<Lamp>>,
+    lamp_mapper: Res<LampMapper>,
+    mut block_map: ResMut<BlockMap>,
+    mut update_queues: ResMut<UpdateQueues>,
+) {
+    block_map
+        .process_updates(&mut update_queues.block_updates)
+        .for_each(|(lamp_id, state)| {
+            let color = if state { LAMP_COLOR_RED } else { LAMP_COLOR_GRAY };
+            let entity = lamp_mapper.0[&lamp_id];
+            query.get_mut(entity).unwrap().color = color;
+        })
 }

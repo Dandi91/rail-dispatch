@@ -3,6 +3,7 @@ use crate::display::lamp::LampId;
 use crate::level::{BlockData, ConnectionData, Level, SignalData};
 use itertools::Itertools;
 use std::collections::HashMap;
+use bevy::prelude::*;
 use crate::simulation::updates::BlockUpdateQueue;
 
 pub type BlockId = usize;
@@ -29,7 +30,7 @@ impl PartialEq<(BlockId, usize)> for Chunk {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Resource)]
 pub struct BlockMap {
     chunks: Vec<Chunk>,
     blocks: Vec<Block>,

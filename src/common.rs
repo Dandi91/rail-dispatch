@@ -3,7 +3,7 @@ use std::ops::Neg;
 use std::time::Instant;
 use bevy::reflect::Reflect;
 
-pub type TrainId = usize;
+pub type TrainId = u64;
 
 #[derive(Deserialize_repr, Reflect, PartialEq, Copy, Clone, Default, Debug, Hash, Eq)]
 #[repr(i8)]

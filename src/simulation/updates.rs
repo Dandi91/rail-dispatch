@@ -1,7 +1,9 @@
 use crate::common::{Direction, TrainId};
 use crate::simulation::block::BlockId;
 use std::collections::VecDeque;
+use bevy::prelude::Resource;
 
+#[derive(Resource)]
 pub struct UpdateQueues {
     pub block_updates: BlockUpdateQueue,
     pub signal_updates: VecDeque<SignalUpdate>,
