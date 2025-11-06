@@ -12,10 +12,10 @@ mod simulation;
 mod time_controls;
 
 use crate::assets::{AssetHandles, AssetLoadingPlugin, LoadingState};
-use crate::display::lamp::{LampId, LAMP_COLOR_GRAY, LAMP_COLOR_RED};
+use crate::display::lamp::{LAMP_COLOR_GRAY, LAMP_COLOR_RED, LampId};
 use crate::level::{Level, LevelPlugin};
 use crate::simulation::block::BlockMap;
-use crate::simulation::train::{spawn_train, NextTrainId, Train};
+use crate::simulation::train::{NextTrainId, Train, spawn_train};
 use crate::simulation::updates::UpdateQueues;
 use crate::time_controls::TimeControlsPlugin;
 use bevy::asset::AssetPlugin;
