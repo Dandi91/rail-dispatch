@@ -307,6 +307,7 @@ impl From<&SignalData> for TrackSignal {
             lamp_id: value.lamp_id,
             direction: value.direction,
             name: value.name.clone(),
+            speed_ctrl: SpeedControl {allowed_kmh: 80.0},
             ..Default::default()
         }
     }

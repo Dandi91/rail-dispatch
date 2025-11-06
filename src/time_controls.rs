@@ -79,7 +79,7 @@ fn setup(mut commands: Commands) {
     commands
         .spawn((
             Node {
-                right: Val::Px(100.0),
+                right: px(5),
                 position_type: PositionType::Absolute,
                 flex_direction: FlexDirection::Column,
                 ..Default::default()
@@ -132,15 +132,15 @@ fn on_time_scale_change(
     time.set_relative_speed_f64(change.time_scale);
     overlay_config.refresh_interval = Duration::from_millis((100.0 * change.time_scale) as u64);
     *writer.text(query.entity(), 0) = time_scale_formatted(change.time_scale);
-    println!("Setting timescale to {}", change.time_scale);
+    info!("Setting timescale to {}", change.time_scale);
 }
 
 fn on_pause_toggle(toggle: On<PauseToggled>, mut time: ResMut<Time<Virtual>>) {
     if toggle.paused {
         time.pause();
-        println!("Paused");
+        info!("Paused");
     } else {
         time.unpause();
-        println!("Resumed");
+        info!("Resumed");
     }
 }

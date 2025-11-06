@@ -37,6 +37,7 @@ fn main() {
                     text_color: Color::srgb(0.0, 1.0, 0.0),
                     frame_time_graph_config: FrameTimeGraphConfig {
                         enabled: false,
+                        target_fps: 60.0,
                         ..default()
                     },
                     ..default()
@@ -70,7 +71,7 @@ fn setup(
     commands.spawn((
         Sprite::from(board),
         Transform {
-            translation: ((window.size() - size) * Vec2::new(-0.5, 0.5)).extend(0.0),
+            translation: to_world_space(Vec2::ZERO, size, window.size()).extend(0.0),
             scale: Vec3::ONE / scale,
             ..default()
         },
@@ -104,7 +105,7 @@ fn setup(
                 },
             ))
             .id();
-        lamp_mapper.0.insert(lamp.id, entity);
+        lamp_mapper.insert(lamp.id, entity);
     }
 
     commands.insert_resource(lamp_mapper);
@@ -113,7 +114,7 @@ fn setup(
 #[derive(Component)]
 struct Lamp;
 
-#[derive(Resource)]
+#[derive(Resource, Deref, DerefMut)]
 struct LampMapper(HashMap<LampId, Entity>);
 
 fn to_world_space(pos: Vec2, size: Vec2, window_size: Vec2) -> Vec2 {
@@ -129,7 +130,7 @@ fn keyboard_handling(
 ) {
     if keyboard_input.just_pressed(KeyCode::KeyG) {
         let train = spawn_train(train_id.next(), &block_map, &mut update_queues);
-        println!("Train {} spawned with ID {}", train.number, train.id);
+        info!("Train {} spawned with ID {}", train.number, train.id);
         commands.spawn(train);
     }
 }
@@ -155,7 +156,7 @@ fn block_updates(
         .process_updates(&mut update_queues.block_updates)
         .for_each(|(lamp_id, state)| {
             let color = if state { LAMP_COLOR_RED } else { LAMP_COLOR_GRAY };
-            let entity = lamp_mapper.0[&lamp_id];
+            let entity = lamp_mapper[&lamp_id];
             query.get_mut(entity).unwrap().color = color;
         })
 }
