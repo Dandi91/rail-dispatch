@@ -3,7 +3,10 @@ use serde_repr::Deserialize_repr;
 use std::ops::Neg;
 use std::time::Instant;
 
-pub type TrainId = u64;
+pub type TrainId = u32;
+pub type BlockId = u32;
+pub type SignalId = u32;
+pub type LampId = u32;
 
 #[derive(Deserialize_repr, Reflect, PartialEq, Copy, Clone, Default, Debug, Hash, Eq)]
 #[repr(i8)]

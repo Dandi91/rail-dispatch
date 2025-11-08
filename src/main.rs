@@ -12,17 +12,18 @@ mod simulation;
 mod time_controls;
 
 use crate::assets::{AssetHandles, AssetLoadingPlugin, LoadingState};
-use crate::display::lamp::{LAMP_COLOR_GRAY, LAMP_COLOR_RED, LampId};
+use crate::display::lamp::{LAMP_COLOR_GRAY, LAMP_COLOR_RED};
 use crate::level::{Level, LevelPlugin};
 use crate::simulation::block::BlockMap;
-use crate::simulation::train::{NextTrainId, Train, spawn_train};
-use crate::simulation::updates::UpdateQueues;
+use crate::simulation::messages::{BlockUpdate, MessagingPlugin};
+use crate::simulation::train::{spawn_train, NextTrainId, Train};
 use crate::time_controls::TimeControlsPlugin;
 use bevy::asset::AssetPlugin;
 use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin, FrameTimeGraphConfig};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use std::collections::HashMap;
+use common::LampId;
 
 fn main() {
     App::new()
@@ -36,7 +37,7 @@ fn main() {
                     text_config: TextFont::from_font_size(20.0),
                     text_color: Color::srgb(0.0, 1.0, 0.0),
                     frame_time_graph_config: FrameTimeGraphConfig {
-                        enabled: false,
+                        enabled: true,
                         target_fps: 60.0,
                         ..default()
                     },
@@ -44,7 +45,7 @@ fn main() {
                 },
             },
         ))
-        .add_plugins((LevelPlugin, AssetLoadingPlugin, TimeControlsPlugin))
+        .add_plugins((LevelPlugin, AssetLoadingPlugin, TimeControlsPlugin, MessagingPlugin))
         .add_systems(OnExit(LoadingState::Loading), setup)
         .add_systems(
             Update,
@@ -79,8 +80,7 @@ fn setup(
 
     let level = levels.get(&handles.level).unwrap();
     commands.insert_resource(BlockMap::from_level(level));
-    commands.insert_resource(NextTrainId::new());
-    commands.insert_resource(UpdateQueues::new());
+    commands.insert_resource(NextTrainId::default());
 
     let mut lamp_mapper = LampMapper(HashMap::new());
     for lamp in level.lamps.iter() {
@@ -124,12 +124,12 @@ fn to_world_space(pos: Vec2, size: Vec2, window_size: Vec2) -> Vec2 {
 fn keyboard_handling(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     block_map: Res<BlockMap>,
+    mut block_updates: MessageWriter<BlockUpdate>,
     mut train_id: ResMut<NextTrainId>,
-    mut update_queues: ResMut<UpdateQueues>,
     mut commands: Commands,
 ) {
     if keyboard_input.just_pressed(KeyCode::KeyG) {
-        let train = spawn_train(train_id.next(), &block_map, &mut update_queues);
+        let train = spawn_train(train_id.next(), &block_map, &mut block_updates);
         info!("Train {} spawned with ID {}", train.number, train.id);
         commands.spawn(train);
     }
@@ -139,10 +139,10 @@ fn update(
     query: Query<&mut Train>,
     time: Res<Time>,
     block_map: Res<BlockMap>,
-    mut update_queues: ResMut<UpdateQueues>,
+    mut block_updates: MessageWriter<BlockUpdate>,
 ) {
     for mut train in query {
-        train.update(time.delta_secs_f64(), &block_map, &mut update_queues.block_updates);
+        train.update(time.delta_secs_f64(), &block_map, &mut block_updates);
     }
 }
 
@@ -150,10 +150,10 @@ fn block_updates(
     mut query: Query<&mut Sprite, With<Lamp>>,
     lamp_mapper: Res<LampMapper>,
     mut block_map: ResMut<BlockMap>,
-    mut update_queues: ResMut<UpdateQueues>,
+    mut block_updates: MessageReader<BlockUpdate>,
 ) {
     block_map
-        .process_updates(&mut update_queues.block_updates)
+        .process_updates(&mut block_updates)
         .for_each(|(lamp_id, state)| {
             let color = if state { LAMP_COLOR_RED } else { LAMP_COLOR_GRAY };
             let entity = lamp_mapper[&lamp_id];

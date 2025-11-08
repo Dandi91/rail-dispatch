@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use serde::Deserialize;
+use crate::common::LampId;
 
 const DEFAULT_LAMP_HEIGHT: f32 = 5.0;
 
@@ -35,8 +36,6 @@ pub struct Lamp {
     #[serde(skip)]
     pub state: LampState,
 }
-
-pub type LampId = usize;
 
 impl Lamp {
     pub fn get_color(&self, flash_state: bool) -> Color {

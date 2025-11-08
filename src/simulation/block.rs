@@ -1,13 +1,10 @@
-use crate::common::{Direction, TrainId};
-use crate::display::lamp::LampId;
+use crate::common::{BlockId, Direction, SignalId, TrainId};
+use crate::common::LampId;
 use crate::level::{BlockData, ConnectionData, Level, SignalData};
-use crate::simulation::updates::BlockUpdateQueue;
+use crate::simulation::messages::BlockUpdate;
 use bevy::prelude::*;
 use itertools::Itertools;
 use std::collections::HashMap;
-
-pub type BlockId = usize;
-pub type SignalId = usize;
 
 #[derive(Debug)]
 struct Chunk {
@@ -24,11 +21,6 @@ impl Default for Chunk {
     }
 }
 
-impl PartialEq<(BlockId, usize)> for Chunk {
-    fn eq(&self, (start_id, start_index): &(usize, usize)) -> bool {
-        self.start_id == *start_id && self.start_index == *start_index
-    }
-}
 
 #[derive(Default, Resource)]
 pub struct BlockMap {
@@ -45,7 +37,7 @@ impl BlockMap {
             Err(x) => {
                 if x > 0 {
                     let chunk = &self.chunks[x - 1];
-                    Some(chunk.start_index + (id - chunk.start_id))
+                    Some(chunk.start_index + (id - chunk.start_id) as usize)
                 } else {
                     None
                 }
@@ -98,9 +90,12 @@ impl BlockMap {
         self.signals.values()
     }
 
-    pub fn process_updates(&mut self, updates: &mut BlockUpdateQueue) -> impl Iterator<Item = (LampId, bool)> {
+    pub fn process_updates(
+        &mut self,
+        updates: &mut MessageReader<BlockUpdate>,
+    ) -> impl Iterator<Item = (LampId, bool)> {
         updates
-            .drain()
+            .read()
             .map(|u| {
                 let vec = self
                     .occupied_blocks
@@ -307,7 +302,7 @@ impl From<&SignalData> for TrackSignal {
             lamp_id: value.lamp_id,
             direction: value.direction,
             name: value.name.clone(),
-            speed_ctrl: SpeedControl {allowed_kmh: 80.0},
+            speed_ctrl: SpeedControl { allowed_kmh: 80.0 },
             ..Default::default()
         }
     }
@@ -392,6 +387,12 @@ impl Iterator for TrackWalker<'_> {
 mod tests {
     use super::*;
     use crate::common::wrap;
+
+    impl PartialEq<(BlockId, usize)> for Chunk {
+        fn eq(&self, (start_id, start_index): &(BlockId, usize)) -> bool {
+            self.start_id == *start_id && self.start_index == *start_index
+        }
+    }
 
     #[test]
     fn test_sparse_block_map() {

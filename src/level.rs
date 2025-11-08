@@ -1,6 +1,6 @@
-use crate::common::Direction;
-use crate::display::lamp::Lamp;
-use bevy::{asset::AssetLoader, asset::LoadContext, asset::io::Reader, prelude::*};
+use crate::common::SignalId;
+use crate::{common::BlockId, common::Direction, common::LampId, display::lamp::Lamp};
+use bevy::{asset::io::Reader, asset::AssetLoader, asset::LoadContext, prelude::*};
 use futures_lite::AsyncReadExt;
 use serde::Deserialize;
 use thiserror::Error;
@@ -15,22 +15,22 @@ pub struct Level {
 
 #[derive(Deserialize, Reflect, Default)]
 pub struct BlockData {
-    pub id: usize,
+    pub id: BlockId,
     pub length: f64,
-    pub lamp_id: usize,
+    pub lamp_id: LampId,
 }
 
 #[derive(Deserialize, Reflect)]
 pub struct ConnectionData {
-    pub start: usize,
-    pub end: usize,
+    pub start: BlockId,
+    pub end: BlockId,
 }
 
 #[derive(Deserialize, Reflect, Clone)]
 pub struct SignalData {
-    pub id: usize,
-    pub lamp_id: usize,
-    pub block_id: usize,
+    pub id: SignalId,
+    pub lamp_id: LampId,
+    pub block_id: BlockId,
     pub offset_m: f64,
     pub name: String,
     pub direction: Direction,

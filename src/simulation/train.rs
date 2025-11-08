@@ -1,7 +1,7 @@
-use crate::common::{Direction, TrainId};
+use crate::common::{BlockId, Direction, TrainId};
 use crate::display::train::TrainKind;
-use crate::simulation::block::{BlockId, BlockMap, TrackPoint};
-use crate::simulation::updates::{BlockUpdateQueue, UpdateQueues};
+use crate::simulation::block::{BlockMap, TrackPoint};
+use crate::simulation::messages::BlockUpdate;
 use bevy::prelude::*;
 use std::collections::VecDeque;
 
@@ -119,18 +119,13 @@ pub struct TrainStatusUpdate {
     pub signal_distance_m: f64,
 }
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct NextTrainId(TrainId);
 
 impl NextTrainId {
-    pub fn new() -> Self {
-        NextTrainId(1)
-    }
-
     pub fn next(&mut self) -> TrainId {
-        let result = self.0;
-        self.0 += 1;
-        result
+        self.0 = self.0.wrapping_add(1);
+        self.0
     }
 }
 
@@ -165,17 +160,14 @@ impl Train {
         state: TrainSpawnState,
         rail_vehicles: Vec<RailVehicle>,
         block_map: &BlockMap,
-        block_updates: &mut BlockUpdateQueue,
+        block_updates: &mut MessageWriter<BlockUpdate>,
     ) -> Self {
         let stats = get_train_stats(&rail_vehicles);
         let mut trace: Vec<TrackPoint> = block_map
             .walk(&state.spawn_point, stats.length_m.max(1.0), state.direction.reverse())
             .collect();
         let occupied: VecDeque<_> = trace.iter().map(|x| x.block_id).collect();
-        occupied
-            .iter()
-            .cloned()
-            .for_each(|block_id| block_updates.occupied(block_id, id));
+        block_updates.write_batch(occupied.iter().map(|&block_id| BlockUpdate::occupied(block_id, id)));
 
         Train {
             id,
@@ -198,10 +190,12 @@ impl Train {
         }
     }
 
-    pub fn despawn(&self, block_updates: &mut BlockUpdateQueue) {
-        self.occupied_blocks
-            .iter()
-            .for_each(|&block_id| block_updates.freed(block_id, self.id))
+    pub fn despawn(&self, block_updates: &mut MessageWriter<BlockUpdate>) {
+        block_updates.write_batch(
+            self.occupied_blocks
+                .iter()
+                .map(|&block_id| BlockUpdate::freed(block_id, self.id)),
+        );
     }
 
     pub fn set_target_speed_kmh(&mut self, speed_kmh: f64) {
@@ -252,7 +246,7 @@ impl Train {
         0.0f64.max((speed_diff_mps * speed_sum) / (2.0 * deceleration_mps2))
     }
 
-    pub fn update(&mut self, dt: f64, map: &BlockMap, block_updates: &mut BlockUpdateQueue) {
+    pub fn update(&mut self, dt: f64, map: &BlockMap, block_updates: &mut MessageWriter<BlockUpdate>) {
         if dt <= 0.0 {
             return;
         }
@@ -300,13 +294,13 @@ impl Train {
 
             let new_front = map.step_by(&self.front_position, dx, self.direction);
             if self.front_position.block_id != new_front.block_id {
-                block_updates.occupied(new_front.block_id, self.id);
+                block_updates.write(BlockUpdate::occupied(new_front.block_id, self.id));
                 self.occupied_blocks.push_front(new_front.block_id);
             }
             let new_back = map.step_by(&self.front_position, self.stats.length_m, self.direction.reverse());
             if self.back_position.block_id != new_back.block_id {
                 let freed = self.occupied_blocks.pop_back().unwrap();
-                block_updates.freed(freed, self.id);
+                block_updates.write(BlockUpdate::freed(freed, self.id));
             }
             self.front_position = new_front;
             self.back_position = new_back;
@@ -332,7 +326,7 @@ impl Train {
     }
 }
 
-pub fn spawn_train(train_id: TrainId, block_map: &BlockMap, updates: &mut UpdateQueues) -> Train {
+pub fn spawn_train(train_id: TrainId, block_map: &BlockMap, block_updates: &mut MessageWriter<BlockUpdate>) -> Train {
     let spawn_state = TrainSpawnState {
         number: rand::random_range(1000..=9999).to_string(),
         kind: TrainKind::Cargo,
@@ -348,7 +342,7 @@ pub fn spawn_train(train_id: TrainId, block_map: &BlockMap, updates: &mut Update
     cars.extend([RailVehicle::new_locomotive(138_000.0, 18.15, 2250.0, 375.0); 2]);
     cars.extend([RailVehicle::new_car(30_000.0, 15.0, 70_000.0); 60]);
 
-    let mut train = Train::spawn_at(train_id, spawn_state, cars, block_map, &mut updates.block_updates);
+    let mut train = Train::spawn_at(train_id, spawn_state, cars, block_map, block_updates);
     train.set_target_speed_kmh(80.0);
     train
 }
