@@ -11,6 +11,8 @@ pub struct Level {
     pub blocks: Vec<BlockData>,
     pub connections: Vec<ConnectionData>,
     pub signals: Vec<SignalData>,
+    #[serde(deserialize_with = "crate::common::deserialize_color")]
+    pub background: Color,
 }
 
 #[derive(Deserialize, Reflect, Default)]

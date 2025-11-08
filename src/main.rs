@@ -58,6 +58,7 @@ fn main() {
 fn setup(
     mut commands: Commands,
     mut window: Single<&mut Window, With<PrimaryWindow>>,
+    mut clear_color: ResMut<ClearColor>,
     handles: Res<AssetHandles>,
     images: Res<Assets<Image>>,
     levels: Res<Assets<Level>>,
@@ -67,25 +68,25 @@ fn setup(
     commands.spawn(Camera2d);
 
     let board = handles.board.clone();
-    let scale = 2.0;
-    let size = images.get(&board).unwrap().size_f32() / scale;
+    let size = images.get(&board).unwrap().size_f32();
     commands.spawn((
         Sprite::from(board),
         Transform {
             translation: to_world_space(Vec2::ZERO, size, window.size()).extend(0.0),
-            scale: Vec3::ONE / scale,
+            scale: Vec3::ONE,
             ..default()
         },
     ));
 
     let level = levels.get(&handles.level).unwrap();
+    *clear_color = ClearColor(level.background);
     commands.insert_resource(BlockMap::from_level(level));
     commands.insert_resource(NextTrainId::default());
 
     let mut lamp_mapper = LampMapper(HashMap::new());
     for lamp in level.lamps.iter() {
         let size = Vec2::new(lamp.width, lamp.height);
-        let pos = to_world_space(Vec2::new(lamp.x, -lamp.y - 1.0), size, window.size());
+        let pos = to_world_space(Vec2::new(lamp.x, -(lamp.y + 1.0)), size, window.size());
         let entity = commands
             .spawn((
                 Lamp,
@@ -93,7 +94,7 @@ fn setup(
                     image: handles.lamp.clone(),
                     color: lamp.get_color(false),
                     image_mode: SpriteImageMode::Sliced(TextureSlicer {
-                        border: BorderRect::axes(3.0, 2.0),
+                        border: BorderRect::axes(2.0, 2.0),
                         ..default()
                     }),
                     custom_size: Some(size),

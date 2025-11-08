@@ -1,4 +1,5 @@
-use bevy::reflect::Reflect;
+use bevy::prelude::*;
+use serde::{de::Error, Deserialize, Deserializer};
 use serde_repr::Deserialize_repr;
 use std::ops::Neg;
 use std::time::Instant;
@@ -49,6 +50,14 @@ impl LowerMultiple for i32 {
     fn lower_multiple(self, divisor: i32) -> i32 {
         self / divisor * divisor
     }
+}
+
+pub fn deserialize_color<'de, D>(deserializer: D) -> Result<Color, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    Srgba::hex(s).map(Color::from).map_err(Error::custom)
 }
 
 #[allow(dead_code)]
