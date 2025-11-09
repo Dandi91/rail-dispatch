@@ -1,12 +1,28 @@
-use crate::common::{Direction, TrainId};
 use crate::common::BlockId;
+use crate::common::{Direction, LampId, TrainId};
 use bevy::prelude::*;
+use std::ops::Not;
+
+pub enum BlockUpdateState {
+    Occupied,
+    Freed,
+}
+
+impl Not for BlockUpdateState {
+    type Output = Self;
+    fn not(self) -> Self::Output {
+        match self {
+            BlockUpdateState::Occupied => BlockUpdateState::Freed,
+            BlockUpdateState::Freed => BlockUpdateState::Occupied,
+        }
+    }
+}
 
 #[derive(Message)]
 pub struct BlockUpdate {
     pub block_id: BlockId,
     pub train_id: TrainId,
-    pub state: bool,
+    pub state: BlockUpdateState,
 }
 
 impl BlockUpdate {
@@ -14,7 +30,7 @@ impl BlockUpdate {
         BlockUpdate {
             block_id,
             train_id,
-            state: true,
+            state: BlockUpdateState::Occupied,
         }
     }
 
@@ -22,7 +38,44 @@ impl BlockUpdate {
         BlockUpdate {
             block_id,
             train_id,
-            state: false,
+            state: BlockUpdateState::Freed,
+        }
+    }
+}
+
+pub enum LampUpdateState {
+    On,
+    Off,
+}
+
+impl Not for LampUpdateState {
+    type Output = Self;
+    fn not(self) -> Self::Output {
+        match self {
+            LampUpdateState::On => LampUpdateState::Off,
+            LampUpdateState::Off => LampUpdateState::On,
+        }
+    }
+}
+
+#[derive(Message)]
+pub struct LampUpdate {
+    pub lamp_id: LampId,
+    pub state: LampUpdateState,
+}
+
+impl LampUpdate {
+    pub fn on(lamp_id: LampId) -> Self {
+        LampUpdate {
+            lamp_id,
+            state: LampUpdateState::On,
+        }
+    }
+
+    pub fn off(lamp_id: LampId) -> Self {
+        LampUpdate {
+            lamp_id,
+            state: LampUpdateState::Off,
         }
     }
 }

@@ -1,7 +1,7 @@
-use crate::common::{BlockId, Direction, SignalId, TrainId};
 use crate::common::LampId;
+use crate::common::{BlockId, Direction, SignalId, TrainId};
 use crate::level::{BlockData, ConnectionData, Level, SignalData};
-use crate::simulation::messages::BlockUpdate;
+use crate::simulation::messages::{BlockUpdate, BlockUpdateState, LampUpdate};
 use bevy::prelude::*;
 use itertools::Itertools;
 use std::collections::HashMap;
@@ -21,13 +21,44 @@ impl Default for Chunk {
     }
 }
 
+#[derive(Default)]
+struct BlockTracker {
+    blocks: HashMap<BlockId, Vec<TrainId>>,
+}
+
+impl BlockTracker {
+    fn is_block_free(&self, block_id: BlockId) -> bool {
+        self.blocks.get(&block_id).is_none_or(|v| v.is_empty())
+    }
+
+    /// Records block as occupied by the train id, returns true if the block was previously free
+    fn set_occupied(&mut self, block_id: BlockId, train_id: TrainId) -> bool {
+        // we rarely need to track more than 1 train per block (more in case of shunting),
+        // but since TrainId is u32, we can afford to preallocate 2 of them just in case.
+        const OCCUPIED_CAPACITY: usize = 2;
+        let entry = self
+            .blocks
+            .entry(block_id)
+            .or_insert_with(|| Vec::with_capacity(OCCUPIED_CAPACITY));
+        entry.push(train_id);
+        entry.len() == 1
+    }
+
+    /// Records block as freed by the train id, returns true if the block is now free
+    fn set_freed(&mut self, block_id: BlockId, train_id: TrainId) -> bool {
+        self.blocks.get_mut(&block_id).map_or(false, |v| {
+            v.retain(|&x| x != train_id);
+            v.is_empty()
+        })
+    }
+}
 
 #[derive(Default, Resource)]
 pub struct BlockMap {
     chunks: Vec<Chunk>,
     blocks: Vec<Block>,
     signals: HashMap<(BlockId, Direction), TrackSignal>,
-    occupied_blocks: HashMap<BlockId, Vec<TrainId>>,
+    tracker: BlockTracker,
 }
 
 impl BlockMap {
@@ -82,40 +113,32 @@ impl BlockMap {
         Some(self.get_block_by_id(&next).expect("block not found"))
     }
 
-    pub fn is_block_free(&self, block_id: BlockId) -> bool {
-        self.occupied_blocks.get(&block_id).is_none_or(|v| v.is_empty())
-    }
-
     pub fn get_signals(&self) -> impl Iterator<Item = &TrackSignal> {
         self.signals.values()
     }
 
     pub fn process_updates(
         &mut self,
-        updates: &mut MessageReader<BlockUpdate>,
-    ) -> impl Iterator<Item = (LampId, bool)> {
-        updates
+        block_updates: &mut MessageReader<BlockUpdate>,
+        lamp_updates: &mut MessageWriter<LampUpdate>,
+    ) {
+        block_updates
             .read()
-            .map(|u| {
-                let vec = self
-                    .occupied_blocks
-                    .entry(u.block_id)
-                    .or_insert_with(|| Vec::with_capacity(1));
-                let block_change = if u.state {
-                    // block occupation
-                    vec.push(u.train_id);
-                    if vec.len() == 1 {
-                        self.get_block_by_id(&u.block_id)
-                    } else {
-                        None
+            .for_each(|u| {
+                match u.state {
+                    BlockUpdateState::Occupied => {
+                        let first = self.tracker.set_occupied(u.train_id, u.block_id);
+                        if first {
+                            let block = self.get_block_by_id(&u.block_id);
+                            lamp_updates.write(LampUpdate::on(block.unwrap().lamp_id));
+                        }
                     }
-                } else {
-                    // block freeing
-                    vec.retain(|&x| x != u.train_id);
-                    if vec.is_empty() {
-                        self.get_block_by_id(&u.block_id)
-                    } else {
-                        None
+                    BlockUpdateState::Freed => {
+                        let last = self.tracker.set_freed(u.train_id, u.block_id);
+                        if last {
+                            let block = self.get_block_by_id(&u.block_id);
+                            lamp_updates.write(LampUpdate::off(block.unwrap().lamp_id));
+                        }
                     }
                 };
 
@@ -132,11 +155,9 @@ impl BlockMap {
                 }
                 result
             })
-            .flatten()
-            .flatten()
     }
 
-    fn find_affected_signals(&self, block: &Block, state: bool) -> impl Iterator<Item = &TrackSignal> {
+    fn find_affected_signals(&self, block: &Block, state: BlockUpdateState) -> impl Iterator<Item = &TrackSignal> {
         let point = block.middle();
         [Direction::Even, Direction::Odd]
             .iter()
@@ -153,7 +174,7 @@ impl BlockMap {
         self.walk(&signal.position, f64::INFINITY, signal.direction)
             .skip(1)
             .take_while_inclusive(|p| self.signals.get(&(p.block_id, signal.direction)).is_none())
-            .all(|p| self.is_block_free(p.block_id))
+            .all(|p| self.tracker.is_block_free(p.block_id))
     }
 
     /// Step `length_m` meters in the `direction` along the track
@@ -650,7 +671,7 @@ mod tests {
     fn affected_signals_busy() {
         let map = build_track_extended();
         let block = map.get_block_by_id(&2).unwrap();
-        let mut result = map.find_affected_signals(block, true).collect_vec();
+        let mut result = map.find_affected_signals(block, BlockUpdateState::Occupied).collect_vec();
         result.sort_by_key(|&signal| signal.position.block_id);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].position.block_id, 1);
@@ -663,7 +684,7 @@ mod tests {
     fn affected_signals_free() {
         let map = build_track_extended();
         let block = map.get_block_by_id(&2).unwrap();
-        let mut result = map.find_affected_signals(block, false).collect_vec();
+        let mut result = map.find_affected_signals(block, BlockUpdateState::Freed).collect_vec();
         result.sort_by_key(|&signal| signal.position.block_id);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].position.block_id, 1);
