@@ -3,6 +3,7 @@ use crate::common::{Direction, LampId, TrainId};
 use bevy::prelude::*;
 use std::ops::Not;
 
+#[derive(Copy, Clone)]
 pub enum BlockUpdateState {
     Occupied,
     Freed,
@@ -65,6 +66,16 @@ pub struct LampUpdate {
 }
 
 impl LampUpdate {
+    pub fn from_block_update(update: BlockUpdateState, lamp_id: LampId) -> Self {
+        LampUpdate {
+            lamp_id,
+            state: match update {
+                BlockUpdateState::Occupied => LampUpdateState::On,
+                BlockUpdateState::Freed => LampUpdateState::Off,
+            },
+        }
+    }
+
     pub fn on(lamp_id: LampId) -> Self {
         LampUpdate {
             lamp_id,
@@ -84,7 +95,7 @@ pub struct MessagingPlugin;
 
 impl Plugin for MessagingPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<BlockUpdate>();
+        app.add_message::<BlockUpdate>().add_message::<LampUpdate>();
     }
 }
 

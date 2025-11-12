@@ -1,9 +1,8 @@
-use crate::common::{BlockId, Direction, TrainId};
+use crate::common::{Direction, TrainId};
 use crate::display::train::TrainKind;
 use crate::simulation::block::{BlockMap, TrackPoint};
 use crate::simulation::messages::BlockUpdate;
 use bevy::prelude::*;
-use std::collections::VecDeque;
 
 #[derive(Default)]
 pub struct TrainControls {
@@ -144,7 +143,6 @@ pub struct Train {
     vehicles: Vec<RailVehicle>,
     stats: TrainStats,
 
-    occupied_blocks: VecDeque<BlockId>,
     front_position: TrackPoint,
     back_position: TrackPoint,
 
@@ -166,8 +164,7 @@ impl Train {
         let mut trace: Vec<TrackPoint> = block_map
             .walk(&state.spawn_point, stats.length_m.max(1.0), state.direction.reverse())
             .collect();
-        let occupied: VecDeque<_> = trace.iter().map(|x| x.block_id).collect();
-        block_updates.write_batch(occupied.iter().map(|&block_id| BlockUpdate::occupied(block_id, id)));
+        block_updates.write_batch(trace.iter().map(|point| BlockUpdate::occupied(point.block_id, id)));
 
         Train {
             id,
@@ -180,7 +177,6 @@ impl Train {
             direction: state.direction,
             vehicles: rail_vehicles,
             stats,
-            occupied_blocks: occupied,
             front_position: state.spawn_point,
             back_position: trace.pop().unwrap(),
             signal_distance_m: 0.0,
@@ -188,14 +184,6 @@ impl Train {
             target_speed_margin_mps: 0.0,
             position_updated: true,
         }
-    }
-
-    pub fn despawn(&self, block_updates: &mut MessageWriter<BlockUpdate>) {
-        block_updates.write_batch(
-            self.occupied_blocks
-                .iter()
-                .map(|&block_id| BlockUpdate::freed(block_id, self.id)),
-        );
     }
 
     pub fn set_target_speed_kmh(&mut self, speed_kmh: f64) {
@@ -295,12 +283,10 @@ impl Train {
             let new_front = map.step_by(&self.front_position, dx, self.direction);
             if self.front_position.block_id != new_front.block_id {
                 block_updates.write(BlockUpdate::occupied(new_front.block_id, self.id));
-                self.occupied_blocks.push_front(new_front.block_id);
             }
             let new_back = map.step_by(&self.front_position, self.stats.length_m, self.direction.reverse());
             if self.back_position.block_id != new_back.block_id {
-                let freed = self.occupied_blocks.pop_back().unwrap();
-                block_updates.write(BlockUpdate::freed(freed, self.id));
+                block_updates.write(BlockUpdate::freed(self.back_position.block_id, self.id));
             }
             self.front_position = new_front;
             self.back_position = new_back;

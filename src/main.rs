@@ -12,18 +12,18 @@ mod simulation;
 mod time_controls;
 
 use crate::assets::{AssetHandles, AssetLoadingPlugin, LoadingState};
-use crate::display::lamp::{LAMP_COLOR_GRAY, LAMP_COLOR_RED};
+use crate::display::lamp::{LAMP_COLOR_GRAY, LAMP_COLOR_GREEN, LAMP_COLOR_RED};
 use crate::level::{Level, LevelPlugin};
 use crate::simulation::block::BlockMap;
-use crate::simulation::messages::{BlockUpdate, MessagingPlugin};
-use crate::simulation::train::{spawn_train, NextTrainId, Train};
+use crate::simulation::messages::{BlockUpdate, LampUpdate, LampUpdateState, MessagingPlugin};
+use crate::simulation::train::{NextTrainId, Train, spawn_train};
 use crate::time_controls::TimeControlsPlugin;
 use bevy::asset::AssetPlugin;
 use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin, FrameTimeGraphConfig};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
-use std::collections::HashMap;
 use common::LampId;
+use std::collections::HashMap;
 
 fn main() {
     App::new()
@@ -49,7 +49,7 @@ fn main() {
         .add_systems(OnExit(LoadingState::Loading), setup)
         .add_systems(
             Update,
-            (keyboard_handling, block_updates).run_if(in_state(LoadingState::Loaded)),
+            (keyboard_handling, block_updates, lamp_updates).run_if(in_state(LoadingState::Loaded)),
         )
         .add_systems(FixedUpdate, update.run_if(in_state(LoadingState::Loaded)))
         .run();
@@ -92,7 +92,11 @@ fn setup(
                 Lamp,
                 Sprite {
                     image: handles.lamp.clone(),
-                    color: lamp.get_color(false),
+                    color: if lamp.id >= 100 {
+                        LAMP_COLOR_GREEN
+                    } else {
+                        lamp.get_color(false)
+                    },
                     image_mode: SpriteImageMode::Sliced(TextureSlicer {
                         border: BorderRect::axes(2.0, 2.0),
                         ..default()
@@ -148,16 +152,29 @@ fn update(
 }
 
 fn block_updates(
-    mut query: Query<&mut Sprite, With<Lamp>>,
-    lamp_mapper: Res<LampMapper>,
     mut block_map: ResMut<BlockMap>,
     mut block_updates: MessageReader<BlockUpdate>,
+    mut lamp_updates: MessageWriter<LampUpdate>,
 ) {
-    block_map
-        .process_updates(&mut block_updates)
-        .for_each(|(lamp_id, state)| {
-            let color = if state { LAMP_COLOR_RED } else { LAMP_COLOR_GRAY };
-            let entity = lamp_mapper[&lamp_id];
-            query.get_mut(entity).unwrap().color = color;
-        })
+    block_map.process_updates(&mut block_updates, &mut lamp_updates);
+}
+
+fn lamp_updates(
+    mut query: Query<&mut Sprite, With<Lamp>>,
+    lamp_mapper: Res<LampMapper>,
+    mut lamp_updates: MessageReader<LampUpdate>,
+) {
+    for update in lamp_updates.read() {
+        let color = if matches!(update.state, LampUpdateState::On) {
+            if update.lamp_id >= 100 {
+                LAMP_COLOR_GREEN
+            } else {
+                LAMP_COLOR_RED
+            }
+        } else {
+            LAMP_COLOR_GRAY
+        };
+        let entity = lamp_mapper[&update.lamp_id];
+        query.get_mut(entity).unwrap().color = color;
+    }
 }

@@ -4,7 +4,7 @@ use crate::level::{BlockData, ConnectionData, Level, SignalData};
 use crate::simulation::messages::{BlockUpdate, BlockUpdateState, LampUpdate};
 use bevy::prelude::*;
 use itertools::Itertools;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug)]
 struct Chunk {
@@ -24,6 +24,7 @@ impl Default for Chunk {
 #[derive(Default)]
 struct BlockTracker {
     blocks: HashMap<BlockId, Vec<TrainId>>,
+    trains: HashMap<TrainId, HashSet<BlockId>>,
 }
 
 impl BlockTracker {
@@ -41,15 +42,34 @@ impl BlockTracker {
             .entry(block_id)
             .or_insert_with(|| Vec::with_capacity(OCCUPIED_CAPACITY));
         entry.push(train_id);
+
+        // a single train can span multiple blocks, especially at stations.
+        // again, considering that BlockId is u32, we can afford to preallocate 8 of them.
+        const TRAIN_BLOCKS_CAPACITY: usize = 8;
+        self.trains
+            .entry(train_id)
+            .or_insert_with(|| HashSet::with_capacity(TRAIN_BLOCKS_CAPACITY))
+            .insert(block_id);
+
         entry.len() == 1
     }
 
     /// Records block as freed by the train id, returns true if the block is now free
     fn set_freed(&mut self, block_id: BlockId, train_id: TrainId) -> bool {
+        self.trains.get_mut(&train_id).map(|v| v.remove(&block_id));
         self.blocks.get_mut(&block_id).map_or(false, |v| {
             v.retain(|&x| x != train_id);
             v.is_empty()
         })
+    }
+
+    /// Despawns the train and removes it from all blocks occupied by it
+    fn despawn_train(&mut self, train_id: TrainId) {
+        self.trains.remove(&train_id).inspect(|blocks| {
+            blocks.iter().for_each(|&block_id| {
+                self.set_freed(block_id, train_id);
+            })
+        });
     }
 }
 
@@ -122,39 +142,23 @@ impl BlockMap {
         block_updates: &mut MessageReader<BlockUpdate>,
         lamp_updates: &mut MessageWriter<LampUpdate>,
     ) {
-        block_updates
-            .read()
-            .for_each(|u| {
-                match u.state {
-                    BlockUpdateState::Occupied => {
-                        let first = self.tracker.set_occupied(u.train_id, u.block_id);
-                        if first {
-                            let block = self.get_block_by_id(&u.block_id);
-                            lamp_updates.write(LampUpdate::on(block.unwrap().lamp_id));
-                        }
-                    }
-                    BlockUpdateState::Freed => {
-                        let last = self.tracker.set_freed(u.train_id, u.block_id);
-                        if last {
-                            let block = self.get_block_by_id(&u.block_id);
-                            lamp_updates.write(LampUpdate::off(block.unwrap().lamp_id));
-                        }
-                    }
-                };
+        block_updates.read().for_each(|u| {
+            let changed = match u.state {
+                BlockUpdateState::Occupied => self.tracker.set_occupied(u.block_id, u.train_id),
+                BlockUpdateState::Freed => self.tracker.set_freed(u.block_id, u.train_id),
+            };
 
-                let mut result = [None; 3];
-                if let Some(block) = block_change {
-                    result[0].replace((block.lamp_id, u.state));
-                    self.find_affected_signals(block, u.state)
-                        .map(|signal| (signal.lamp_id, !u.state))
-                        .enumerate()
-                        .fold(&mut result, |acc, (idx, item)| {
-                            acc[idx + 1].replace(item);
-                            acc
-                        });
-                }
-                result
-            })
+            if !changed {
+                return;
+            }
+            let block = self.get_block_by_id(&u.block_id).unwrap();
+            lamp_updates.write(LampUpdate::from_block_update(u.state, block.lamp_id));
+
+            lamp_updates.write_batch(
+                self.find_affected_signals(block, u.state)
+                    .map(|signal| LampUpdate::from_block_update(!u.state, signal.lamp_id)),
+            );
+        });
     }
 
     fn find_affected_signals(&self, block: &Block, state: BlockUpdateState) -> impl Iterator<Item = &TrackSignal> {
@@ -167,7 +171,7 @@ impl BlockMap {
                     .find_map(|p| self.signals.get(&(p.block_id, direction.reverse())))
             })
             .flatten()
-            .filter(move |signal| state || self.is_signal_free(signal))
+            .filter(move |signal| matches!(state, BlockUpdateState::Occupied) || self.is_signal_free(signal))
     }
 
     fn is_signal_free(&self, signal: &TrackSignal) -> bool {
@@ -671,7 +675,9 @@ mod tests {
     fn affected_signals_busy() {
         let map = build_track_extended();
         let block = map.get_block_by_id(&2).unwrap();
-        let mut result = map.find_affected_signals(block, BlockUpdateState::Occupied).collect_vec();
+        let mut result = map
+            .find_affected_signals(block, BlockUpdateState::Occupied)
+            .collect_vec();
         result.sort_by_key(|&signal| signal.position.block_id);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].position.block_id, 1);

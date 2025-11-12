@@ -1,6 +1,6 @@
+use crate::common::LampId;
 use bevy::prelude::*;
 use serde::Deserialize;
-use crate::common::LampId;
 
 const DEFAULT_LAMP_HEIGHT: f32 = 5.0;
 

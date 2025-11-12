@@ -1,6 +1,6 @@
 use crate::common::SignalId;
 use crate::{common::BlockId, common::Direction, common::LampId, display::lamp::Lamp};
-use bevy::{asset::io::Reader, asset::AssetLoader, asset::LoadContext, prelude::*};
+use bevy::{asset::AssetLoader, asset::LoadContext, asset::io::Reader, prelude::*};
 use futures_lite::AsyncReadExt;
 use serde::Deserialize;
 use thiserror::Error;
