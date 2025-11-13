@@ -9,9 +9,11 @@ mod level;
 mod simulation;
 // pub mod signal;
 // pub mod speed_table;
+mod debug_overlay;
 mod time_controls;
 
 use crate::assets::{AssetHandles, AssetLoadingPlugin, LoadingState};
+use crate::debug_overlay::DebugOverlayPlugin;
 use crate::display::lamp::{LAMP_COLOR_GRAY, LAMP_COLOR_GREEN, LAMP_COLOR_RED};
 use crate::level::{Level, LevelPlugin};
 use crate::simulation::block::BlockMap;
@@ -45,7 +47,13 @@ fn main() {
                 },
             },
         ))
-        .add_plugins((LevelPlugin, AssetLoadingPlugin, TimeControlsPlugin, MessagingPlugin))
+        .add_plugins((
+            DebugOverlayPlugin,
+            LevelPlugin,
+            AssetLoadingPlugin,
+            TimeControlsPlugin,
+            MessagingPlugin,
+        ))
         .add_systems(OnExit(LoadingState::Loading), setup)
         .add_systems(
             Update,
@@ -89,7 +97,8 @@ fn setup(
         let pos = to_world_space(Vec2::new(lamp.x, -(lamp.y + 1.0)), size, window.size());
         let entity = commands
             .spawn((
-                Lamp,
+                Lamp { id: lamp.id },
+                Pickable::default(),
                 Sprite {
                     image: handles.lamp.clone(),
                     color: if lamp.id >= 100 {
@@ -112,12 +121,13 @@ fn setup(
             .id();
         lamp_mapper.insert(lamp.id, entity);
     }
-
     commands.insert_resource(lamp_mapper);
 }
 
 #[derive(Component)]
-struct Lamp;
+struct Lamp {
+    id: LampId,
+}
 
 #[derive(Resource, Deref, DerefMut)]
 struct LampMapper(HashMap<LampId, Entity>);

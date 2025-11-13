@@ -152,11 +152,11 @@ impl BlockMap {
                 return;
             }
             let block = self.get_block_by_id(&u.block_id).unwrap();
-            lamp_updates.write(LampUpdate::from_block_update(u.state, block.lamp_id));
+            lamp_updates.write(LampUpdate::from_block_state(u.state, block.lamp_id));
 
             lamp_updates.write_batch(
                 self.find_affected_signals(block, u.state)
-                    .map(|signal| LampUpdate::from_block_update(!u.state, signal.lamp_id)),
+                    .map(|signal| LampUpdate::from_block_state(!u.state, signal.lamp_id)),
             );
         });
     }
@@ -216,6 +216,23 @@ impl BlockMap {
             length_m,
             direction,
         }
+    }
+
+    pub fn get_lamp_info(&self, id: LampId) -> Option<String> {
+        if let Some(block) = self.blocks.iter().find(|&b| b.lamp_id == id) {
+            if self.tracker.is_block_free(block.id) {
+                return Some(format!("Block ID: {}\nFree", block.id));
+            }
+            let trains = self.tracker.blocks.get(&block.id).unwrap().into_iter().join(", ");
+            return Some(format!("Block ID: {}\nTrains: {}", block.id, trains));
+        }
+        if let Some(signal) = self.signals.values().find(|&s| s.lamp_id == id) {
+            return Some(format!(
+                "Signal '{}' (ID {})\nAllowed speed: {:.0} km/h\nBlock ID: {}",
+                signal.name, signal.id, signal.speed_ctrl.allowed_kmh, signal.position.block_id
+            ));
+        }
+        None
     }
 
     pub fn from_level(level: &Level) -> Self {

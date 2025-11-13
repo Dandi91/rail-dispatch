@@ -66,10 +66,10 @@ pub struct LampUpdate {
 }
 
 impl LampUpdate {
-    pub fn from_block_update(update: BlockUpdateState, lamp_id: LampId) -> Self {
+    pub fn from_block_state(update_state: BlockUpdateState, lamp_id: LampId) -> Self {
         LampUpdate {
             lamp_id,
-            state: match update {
+            state: match update_state {
                 BlockUpdateState::Occupied => LampUpdateState::On,
                 BlockUpdateState::Freed => LampUpdateState::Off,
             },

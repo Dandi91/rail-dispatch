@@ -94,8 +94,7 @@ fn setup(mut commands: Commands) {
                 TextColor(Color::WHITE),
                 TimeScaleText,
                 Pickable::IGNORE,
-            ))
-            .with_child((TextSpan::default(), TextFont::from_font_size(20.0)));
+            ));
         });
 }
 
