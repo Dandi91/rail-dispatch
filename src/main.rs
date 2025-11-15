@@ -12,14 +12,14 @@ mod simulation;
 mod debug_overlay;
 mod time_controls;
 
-use crate::assets::{AssetHandles, AssetLoadingPlugin, LoadingState};
-use crate::debug_overlay::DebugOverlayPlugin;
-use crate::display::lamp::{LAMP_COLOR_GRAY, LAMP_COLOR_GREEN, LAMP_COLOR_RED};
-use crate::level::{Level, LevelPlugin};
-use crate::simulation::block::BlockMap;
-use crate::simulation::messages::{BlockUpdate, LampUpdate, LampUpdateState, MessagingPlugin};
-use crate::simulation::train::{NextTrainId, Train, spawn_train};
-use crate::time_controls::TimeControlsPlugin;
+use assets::{AssetHandles, AssetLoadingPlugin, LoadingState};
+use debug_overlay::DebugOverlayPlugin;
+use display::lamp::{LAMP_COLOR_GRAY, LAMP_COLOR_GREEN, LAMP_COLOR_RED};
+use level::{Level, LevelPlugin};
+use simulation::block::BlockMap;
+use simulation::messages::{BlockUpdate, LampUpdate, LampUpdateState, MessagingPlugin};
+use simulation::train::{NextTrainId, Train, spawn_train};
+use time_controls::TimeControlsPlugin;
 use bevy::asset::AssetPlugin;
 use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin, FrameTimeGraphConfig};
 use bevy::prelude::*;
@@ -138,7 +138,8 @@ fn to_world_space(pos: Vec2, size: Vec2, window_size: Vec2) -> Vec2 {
 
 fn keyboard_handling(
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    block_map: Res<BlockMap>,
+    mut block_map: ResMut<BlockMap>,
+    query: Query<(Entity, &mut Train)>,
     mut block_updates: MessageWriter<BlockUpdate>,
     mut train_id: ResMut<NextTrainId>,
     mut commands: Commands,
@@ -147,6 +148,13 @@ fn keyboard_handling(
         let train = spawn_train(train_id.next(), &block_map, &mut block_updates);
         info!("Train {} spawned with ID {}", train.number, train.id);
         commands.spawn(train);
+    }
+    if keyboard_input.just_pressed(KeyCode::KeyH) {
+        if let Some((entity, train)) = query.iter().min_by_key(|(_, t)| t.id) {
+            info!("Train {} despawned with ID {}", train.number, train.id);
+            block_map.despawn_train(train.id, &mut block_updates);
+            commands.entity(entity).despawn();
+        }
     }
 }
 

@@ -24,6 +24,7 @@ fn setup(mut commands: Commands) {
     commands.spawn((
         Text::new(
             "Press G to spawn a train\n\
+                  Press H to despawn the oldest train\n\
                   Press Up or Down to increase or lower the speed\n\
                   Hover over lamps to see info",
         ),

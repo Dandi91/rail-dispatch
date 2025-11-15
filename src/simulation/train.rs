@@ -1,5 +1,4 @@
 use crate::common::{Direction, TrainId};
-use crate::display::train::TrainKind;
 use crate::simulation::block::{BlockMap, TrackPoint};
 use crate::simulation::messages::BlockUpdate;
 use bevy::prelude::*;
@@ -102,7 +101,6 @@ fn get_train_stats<'a, I: IntoIterator<Item = &'a RailVehicle>>(vehicles: I) -> 
 
 pub struct TrainSpawnState {
     pub number: String,
-    pub kind: TrainKind,
     pub speed_mps: f64,
     pub direction: Direction,
     pub spawn_point: TrackPoint,
@@ -132,7 +130,6 @@ impl NextTrainId {
 pub struct Train {
     pub id: TrainId,
     pub number: String,
-    kind: TrainKind,
 
     controls: TrainControls,
     speed_mps: f64,
@@ -169,7 +166,6 @@ impl Train {
         Train {
             id,
             number: state.number,
-            kind: state.kind,
             controls: Default::default(),
             speed_mps: state.speed_mps,
             target_speed_mps: 0.0,
@@ -315,7 +311,6 @@ impl Train {
 pub fn spawn_train(train_id: TrainId, block_map: &BlockMap, block_updates: &mut MessageWriter<BlockUpdate>) -> Train {
     let spawn_state = TrainSpawnState {
         number: rand::random_range(1000..=9999).to_string(),
-        kind: TrainKind::Cargo,
         direction: Direction::Even,
         speed_mps: 0.0,
         spawn_point: TrackPoint {

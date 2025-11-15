@@ -64,12 +64,12 @@ impl BlockTracker {
     }
 
     /// Despawns the train and removes it from all blocks occupied by it
-    fn despawn_train(&mut self, train_id: TrainId) {
+    fn despawn_train(&mut self, train_id: TrainId) -> Option<HashSet<BlockId>> {
         self.trains.remove(&train_id).inspect(|blocks| {
             blocks.iter().for_each(|&block_id| {
                 self.set_freed(block_id, train_id);
             })
-        });
+        })
     }
 }
 
@@ -135,6 +135,12 @@ impl BlockMap {
 
     pub fn get_signals(&self) -> impl Iterator<Item = &TrackSignal> {
         self.signals.values()
+    }
+
+    pub fn despawn_train(&mut self, train_id: TrainId, block_updates: &mut MessageWriter<BlockUpdate>) {
+        if let Some(blocks) = self.tracker.despawn_train(train_id) {
+            block_updates.write_batch(blocks.iter().map(|b| BlockUpdate::freed(*b, train_id)));
+        }
     }
 
     pub fn process_updates(
