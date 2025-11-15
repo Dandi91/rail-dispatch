@@ -27,6 +27,7 @@ fn setup(mut commands: Commands) {
                   Press Up or Down to increase or lower the speed\n\
                   Hover over lamps to see info",
         ),
+        TextFont::from_font_size(16.0),
         Node {
             position_type: PositionType::Absolute,
             bottom: px(12),
@@ -72,7 +73,7 @@ fn on_add_lamp(
 
 fn on_over_lamp(
     event: On<Pointer<Over>>,
-    block_map: Res<BlockMap>,
+    block_map: If<Res<BlockMap>>,
     mut query: Query<&Lamp>,
     mut info: Single<(&Children, &mut Visibility, &mut Node), With<DetailsInfo>>,
     mut writer: TextUiWriter,
