@@ -8,15 +8,14 @@ mod level;
 mod simulation;
 mod time_controls;
 
-use crate::display::lamp::LampPlugin;
 use crate::simulation::train::TrainPlugin;
 use assets::{AssetHandles, AssetLoadingPlugin, LoadingState};
 use bevy::asset::AssetPlugin;
 use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin, FrameTimeGraphConfig};
 use bevy::prelude::*;
-use bevy::sprite::Anchor;
 use bevy::window::PrimaryWindow;
 use debug_overlay::DebugOverlayPlugin;
+use display::DisplayPlugin;
 use level::{Level, LevelPlugin};
 use simulation::block::BlockMap;
 use simulation::messages::{BlockUpdate, LampUpdate, MessagingPlugin};
@@ -48,33 +47,29 @@ fn main() {
             AssetLoadingPlugin,
             TimeControlsPlugin,
             MessagingPlugin,
-            LampPlugin,
+            DisplayPlugin,
             TrainPlugin,
         ))
+        .add_systems(Startup, camera_setup)
         .add_systems(OnExit(LoadingState::Loading), setup)
         .add_systems(Update, block_updates.run_if(in_state(LoadingState::Loaded)))
         .run();
 }
 
-fn setup(
+fn camera_setup(
     mut commands: Commands,
     mut window: Single<&mut Window, With<PrimaryWindow>>,
-    mut clear_color: ResMut<ClearColor>,
-    handles: Res<AssetHandles>,
-    images: Res<Assets<Image>>,
-    levels: Res<Assets<Level>>,
 ) {
     window.title = "Rail Dispatch".to_string();
+    commands.spawn(Camera2d);
+}
 
-    let board = handles.board.clone();
-    let size = images.get(&board).unwrap().size_f32();
-    let cam_translation = (size * Anchor::BOTTOM_RIGHT.as_vec()).extend(0.0);
-
-    commands.spawn((Camera2d, Transform::from_translation(cam_translation)));
-    commands.spawn((Sprite::from(board), Anchor::TOP_LEFT));
-
+fn setup(
+    mut commands: Commands,
+    handles: Res<AssetHandles>,
+    levels: Res<Assets<Level>>,
+) {
     let level = levels.get(&handles.level).unwrap();
-    *clear_color = ClearColor(level.background);
     commands.insert_resource(BlockMap::from_level(level));
 }
 

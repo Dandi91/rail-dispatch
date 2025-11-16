@@ -17,7 +17,6 @@ struct LampBundle {
     lamp: Lamp,
     transform: Transform,
     sprite: Sprite,
-    anchor: Anchor,
 }
 
 impl LampBundle {
@@ -28,7 +27,6 @@ impl LampBundle {
         Self {
             lamp,
             transform,
-            anchor: Anchor::TOP_LEFT,
             sprite: Sprite {
                 color,
                 image,
@@ -44,7 +42,7 @@ impl LampBundle {
 }
 
 #[derive(Component)]
-#[require(Pickable)]
+#[require(Pickable, Anchor::TOP_LEFT)]
 pub struct Lamp {
     pub id: LampId,
     position: Vec2,
@@ -90,9 +88,28 @@ impl From<&LampData> for Lamp {
 #[derive(Resource, Deref, DerefMut, Default)]
 struct LampMapper(HashMap<LampId, Entity>);
 
-pub struct LampPlugin;
+#[derive(Component, Default)]
+#[require(Transform, Anchor::TOP_LEFT)]
+struct DisplayBoard;
 
-impl Plugin for LampPlugin {
+#[derive(Bundle)]
+struct DisplayBoardBundle {
+    display_board: DisplayBoard,
+    sprite: Sprite,
+}
+
+impl DisplayBoardBundle {
+    fn new(image: Handle<Image>) -> Self {
+        Self {
+            display_board: Default::default(),
+            sprite: Sprite::from(image),
+        }
+    }
+}
+
+pub struct DisplayPlugin;
+
+impl Plugin for DisplayPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LampMapper>()
             .add_systems(OnExit(LoadingState::Loading), setup)
@@ -103,11 +120,18 @@ impl Plugin for LampPlugin {
 fn setup(
     handles: Res<AssetHandles>,
     levels: Res<Assets<Level>>,
+    images: Res<Assets<Image>>,
+    mut camera_transform: Single<&mut Transform, With<Camera2d>>,
+    mut clear_color: ResMut<ClearColor>,
     mut mapper: ResMut<LampMapper>,
     mut commands: Commands,
 ) {
     let level = levels.get(&handles.level).unwrap();
+    let board_size = images.get(&handles.board).unwrap().size_f32();
+    *clear_color = ClearColor(level.background);
+    camera_transform.translation = (board_size * Anchor::BOTTOM_RIGHT.as_vec()).extend(0.0);
 
+    commands.spawn(DisplayBoardBundle::new(handles.board.clone()));
     for lamp in &level.lamps {
         let bundle = LampBundle::new(lamp.into(), handles.lamp.clone());
         let entity = commands.spawn(bundle).id();
