@@ -9,6 +9,7 @@ mod simulation;
 mod time_controls;
 
 use crate::display::lamp::LampPlugin;
+use crate::simulation::train::TrainPlugin;
 use assets::{AssetHandles, AssetLoadingPlugin, LoadingState};
 use bevy::asset::AssetPlugin;
 use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin, FrameTimeGraphConfig};
@@ -19,7 +20,6 @@ use debug_overlay::DebugOverlayPlugin;
 use level::{Level, LevelPlugin};
 use simulation::block::BlockMap;
 use simulation::messages::{BlockUpdate, LampUpdate, MessagingPlugin};
-use simulation::train::{NextTrainId, Train, spawn_train};
 use time_controls::TimeControlsPlugin;
 
 fn main() {
@@ -49,13 +49,10 @@ fn main() {
             TimeControlsPlugin,
             MessagingPlugin,
             LampPlugin,
+            TrainPlugin,
         ))
         .add_systems(OnExit(LoadingState::Loading), setup)
-        .add_systems(
-            Update,
-            (keyboard_handling, block_updates).run_if(in_state(LoadingState::Loaded)),
-        )
-        .add_systems(FixedUpdate, update.run_if(in_state(LoadingState::Loaded)))
+        .add_systems(Update, block_updates.run_if(in_state(LoadingState::Loaded)))
         .run();
 }
 
@@ -79,40 +76,6 @@ fn setup(
     let level = levels.get(&handles.level).unwrap();
     *clear_color = ClearColor(level.background);
     commands.insert_resource(BlockMap::from_level(level));
-    commands.insert_resource(NextTrainId::default());
-}
-
-fn keyboard_handling(
-    keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut block_map: ResMut<BlockMap>,
-    query: Query<(Entity, &mut Train)>,
-    mut block_updates: MessageWriter<BlockUpdate>,
-    mut train_id: ResMut<NextTrainId>,
-    mut commands: Commands,
-) {
-    if keyboard_input.just_pressed(KeyCode::KeyG) {
-        let train = spawn_train(train_id.next(), &block_map, &mut block_updates);
-        info!("Train {} spawned with ID {}", train.number, train.id);
-        commands.spawn(train);
-    }
-    if keyboard_input.just_pressed(KeyCode::KeyH) {
-        if let Some((entity, train)) = query.iter().min_by_key(|(_, t)| t.id) {
-            info!("Train {} despawned with ID {}", train.number, train.id);
-            block_map.despawn_train(train.id, &mut block_updates);
-            commands.entity(entity).despawn();
-        }
-    }
-}
-
-fn update(
-    query: Query<&mut Train>,
-    time: Res<Time>,
-    block_map: Res<BlockMap>,
-    mut block_updates: MessageWriter<BlockUpdate>,
-) {
-    for mut train in query {
-        train.update(time.delta_secs_f64(), &block_map, &mut block_updates);
-    }
 }
 
 fn block_updates(
