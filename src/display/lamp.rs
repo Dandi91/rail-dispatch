@@ -7,26 +7,21 @@ use bevy::sprite::Anchor;
 use std::collections::HashMap;
 
 pub const DEFAULT_LAMP_HEIGHT: f32 = 5.0;
-
-pub fn default_lamp_height() -> f32 {
-    DEFAULT_LAMP_HEIGHT
-}
-
-pub const LAMP_COLOR_GRAY: Color = Color::srgba_u8(0x55, 0x55, 0x55, 0xFF);
-pub const LAMP_COLOR_YELLOW: Color = Color::srgba_u8(0xFF, 0xFF, 0x40, 0xFF);
-pub const LAMP_COLOR_RED: Color = Color::srgba_u8(0xFF, 0x20, 0x20, 0xFF);
-pub const LAMP_COLOR_GREEN: Color = Color::srgba_u8(0x00, 0xFF, 0x00, 0xFF);
+const LAMP_COLOR_GRAY: Color = Color::srgba_u8(0x55, 0x55, 0x55, 0xFF);
+const LAMP_COLOR_YELLOW: Color = Color::srgba_u8(0xFF, 0xFF, 0x40, 0xFF);
+const LAMP_COLOR_RED: Color = Color::srgba_u8(0xFF, 0x20, 0x20, 0xFF);
+const LAMP_COLOR_GREEN: Color = Color::srgba_u8(0x00, 0xFF, 0x00, 0xFF);
 
 #[derive(Bundle)]
-pub struct LampBundle {
-    pub lamp: Lamp,
-    pub transform: Transform,
-    pub sprite: Sprite,
-    pub anchor: Anchor,
+struct LampBundle {
+    lamp: Lamp,
+    transform: Transform,
+    sprite: Sprite,
+    anchor: Anchor,
 }
 
 impl LampBundle {
-    pub fn new(lamp: Lamp, image: Handle<Image>) -> Self {
+    fn new(lamp: Lamp, image: Handle<Image>) -> Self {
         let transform = Transform::from_translation(lamp.position.extend(1.0));
         let color = lamp.get_initial_color();
         let sprite_size = Some(lamp.size);
@@ -49,6 +44,7 @@ impl LampBundle {
 }
 
 #[derive(Component)]
+#[require(Pickable)]
 pub struct Lamp {
     pub id: LampId,
     position: Vec2,
@@ -92,7 +88,7 @@ impl From<&LampData> for Lamp {
 }
 
 #[derive(Resource, Deref, DerefMut, Default)]
-pub struct LampMapper(HashMap<LampId, Entity>);
+struct LampMapper(HashMap<LampId, Entity>);
 
 pub struct LampPlugin;
 
@@ -106,7 +102,7 @@ impl Plugin for LampPlugin {
 fn setup(handles: Res<AssetHandles>, levels: Res<Assets<Level>>, mut commands: Commands) {
     let level = levels.get(&handles.level).unwrap();
 
-    let mut lamp_mapper = LampMapper(HashMap::new());
+    let mut lamp_mapper = LampMapper::default();
     for lamp in &level.lamps {
         let bundle = LampBundle::new(lamp.into(), handles.lamp.clone());
         let entity = commands.spawn(bundle).id();
@@ -115,10 +111,10 @@ fn setup(handles: Res<AssetHandles>, levels: Res<Assets<Level>>, mut commands: C
     commands.insert_resource(lamp_mapper);
 }
 
-pub fn lamp_updates(
+fn lamp_updates(
+    mut lamp_updates: MessageReader<LampUpdate>,
     mut query: Query<(&mut Sprite, &Lamp)>,
     lamp_mapper: If<Res<LampMapper>>,
-    mut lamp_updates: MessageReader<LampUpdate>,
 ) {
     for update in lamp_updates.read() {
         let entity = lamp_mapper[&update.lamp_id];

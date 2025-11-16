@@ -1,5 +1,5 @@
 use crate::common::SignalId;
-use crate::display::lamp::default_lamp_height;
+use crate::display::lamp::DEFAULT_LAMP_HEIGHT;
 use crate::{common::BlockId, common::Direction, common::LampId};
 use bevy::{asset::AssetLoader, asset::LoadContext, asset::io::Reader, prelude::*};
 use futures_lite::AsyncReadExt;
@@ -14,6 +14,10 @@ pub struct Level {
     pub signals: Vec<SignalData>,
     #[serde(deserialize_with = "crate::common::deserialize_color")]
     pub background: Color,
+}
+
+fn default_lamp_height() -> f32 {
+    DEFAULT_LAMP_HEIGHT
 }
 
 #[derive(Deserialize, Reflect)]
