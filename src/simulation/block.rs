@@ -1,3 +1,4 @@
+use crate::assets::{AssetHandles, LoadingState};
 use crate::common::LampId;
 use crate::common::{BlockId, Direction, SignalId, TrainId};
 use crate::level::{BlockData, ConnectionData, Level, SignalData};
@@ -429,6 +430,28 @@ impl Iterator for TrackWalker<'_> {
             })
         }
     }
+}
+
+pub struct MapPlugin;
+
+impl Plugin for MapPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(OnExit(LoadingState::Loading), setup)
+            .add_systems(Update, block_updates.run_if(in_state(LoadingState::Loaded)));
+    }
+}
+
+fn setup(handles: Res<AssetHandles>, levels: Res<Assets<Level>>, mut commands: Commands) {
+    let level = levels.get(&handles.level).unwrap();
+    commands.insert_resource(BlockMap::from_level(level));
+}
+
+fn block_updates(
+    mut block_map: ResMut<BlockMap>,
+    mut block_updates: MessageReader<BlockUpdate>,
+    mut lamp_updates: MessageWriter<LampUpdate>,
+) {
+    block_map.process_updates(&mut block_updates, &mut lamp_updates);
 }
 
 #[cfg(test)]

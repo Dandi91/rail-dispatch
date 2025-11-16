@@ -8,17 +8,17 @@ mod level;
 mod simulation;
 mod time_controls;
 
+use crate::simulation::block::MapPlugin;
 use crate::simulation::train::TrainPlugin;
-use assets::{AssetHandles, AssetLoadingPlugin, LoadingState};
+use assets::AssetLoadingPlugin;
 use bevy::asset::AssetPlugin;
 use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin, FrameTimeGraphConfig};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use debug_overlay::DebugOverlayPlugin;
 use display::DisplayPlugin;
-use level::{Level, LevelPlugin};
-use simulation::block::BlockMap;
-use simulation::messages::{BlockUpdate, LampUpdate, MessagingPlugin};
+use level::LevelPlugin;
+use simulation::messages::MessagingPlugin;
 use time_controls::TimeControlsPlugin;
 
 fn main() {
@@ -49,34 +49,13 @@ fn main() {
             MessagingPlugin,
             DisplayPlugin,
             TrainPlugin,
+            MapPlugin,
         ))
         .add_systems(Startup, camera_setup)
-        .add_systems(OnExit(LoadingState::Loading), setup)
-        .add_systems(Update, block_updates.run_if(in_state(LoadingState::Loaded)))
         .run();
 }
 
-fn camera_setup(
-    mut commands: Commands,
-    mut window: Single<&mut Window, With<PrimaryWindow>>,
-) {
+fn camera_setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWindow>>) {
     window.title = "Rail Dispatch".to_string();
     commands.spawn(Camera2d);
-}
-
-fn setup(
-    mut commands: Commands,
-    handles: Res<AssetHandles>,
-    levels: Res<Assets<Level>>,
-) {
-    let level = levels.get(&handles.level).unwrap();
-    commands.insert_resource(BlockMap::from_level(level));
-}
-
-fn block_updates(
-    mut block_map: ResMut<BlockMap>,
-    mut block_updates: MessageReader<BlockUpdate>,
-    mut lamp_updates: MessageWriter<LampUpdate>,
-) {
-    block_map.process_updates(&mut block_updates, &mut lamp_updates);
 }

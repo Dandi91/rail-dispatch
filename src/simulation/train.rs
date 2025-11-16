@@ -306,7 +306,11 @@ fn spawn_train(train_id: TrainId, block_map: &BlockMap, block_updates: &mut Mess
         ..default()
     };
 
-    block_updates.write_batch(trace.iter().map(|point| BlockUpdate::occupied(point.block_id, train_id)));
+    block_updates.write_batch(
+        trace
+            .iter()
+            .map(|point| BlockUpdate::occupied(point.block_id, train_id)),
+    );
     train.set_target_speed_kmh(80.0);
     train
 }
