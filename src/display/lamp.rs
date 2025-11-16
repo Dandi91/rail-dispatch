@@ -94,31 +94,36 @@ pub struct LampPlugin;
 
 impl Plugin for LampPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnExit(LoadingState::Loading), setup)
+        app.init_resource::<LampMapper>()
+            .add_systems(OnExit(LoadingState::Loading), setup)
             .add_systems(Update, lamp_updates);
     }
 }
 
-fn setup(handles: Res<AssetHandles>, levels: Res<Assets<Level>>, mut commands: Commands) {
+fn setup(
+    handles: Res<AssetHandles>,
+    levels: Res<Assets<Level>>,
+    mut mapper: ResMut<LampMapper>,
+    mut commands: Commands,
+) {
     let level = levels.get(&handles.level).unwrap();
 
-    let mut lamp_mapper = LampMapper::default();
     for lamp in &level.lamps {
         let bundle = LampBundle::new(lamp.into(), handles.lamp.clone());
         let entity = commands.spawn(bundle).id();
-        lamp_mapper.insert(lamp.id, entity);
+        mapper.insert(lamp.id, entity);
     }
-    commands.insert_resource(lamp_mapper);
 }
 
 fn lamp_updates(
     mut lamp_updates: MessageReader<LampUpdate>,
     mut query: Query<(&mut Sprite, &Lamp)>,
-    lamp_mapper: If<Res<LampMapper>>,
+    lamp_mapper: Res<LampMapper>,
 ) {
     for update in lamp_updates.read() {
-        let entity = lamp_mapper[&update.lamp_id];
-        let (mut sprite, lamp) = query.get_mut(entity).unwrap();
-        sprite.color = lamp.get_color(update.state);
+        if let Some(&entity) = lamp_mapper.get(&update.lamp_id) {
+            let (mut sprite, lamp) = query.get_mut(entity).unwrap();
+            sprite.color = lamp.get_color(update.state);
+        }
     }
 }
