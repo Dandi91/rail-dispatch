@@ -1,4 +1,4 @@
-use crate::Lamp;
+use crate::display::lamp::Lamp;
 use crate::simulation::block::BlockMap;
 use bevy::prelude::*;
 use std::ops::DerefMut;

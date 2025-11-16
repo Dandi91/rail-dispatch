@@ -1,5 +1,6 @@
 use crate::common::SignalId;
-use crate::{common::BlockId, common::Direction, common::LampId, display::lamp::Lamp};
+use crate::display::lamp::default_lamp_height;
+use crate::{common::BlockId, common::Direction, common::LampId};
 use bevy::{asset::AssetLoader, asset::LoadContext, asset::io::Reader, prelude::*};
 use futures_lite::AsyncReadExt;
 use serde::Deserialize;
@@ -7,12 +8,22 @@ use thiserror::Error;
 
 #[derive(Deserialize, Asset, Reflect)]
 pub struct Level {
-    pub lamps: Vec<Lamp>,
+    pub lamps: Vec<LampData>,
     pub blocks: Vec<BlockData>,
     pub connections: Vec<ConnectionData>,
     pub signals: Vec<SignalData>,
     #[serde(deserialize_with = "crate::common::deserialize_color")]
     pub background: Color,
+}
+
+#[derive(Deserialize, Reflect)]
+pub struct LampData {
+    pub id: LampId,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    #[serde(default = "default_lamp_height")]
+    pub height: f32,
 }
 
 #[derive(Deserialize, Reflect, Default)]

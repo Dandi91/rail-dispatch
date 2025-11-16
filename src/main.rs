@@ -1,31 +1,26 @@
 // mod clock;
 mod common;
-// mod consts;
 mod display;
-// mod event;
 // mod game_state;
 mod assets;
+mod debug_overlay;
 mod level;
 mod simulation;
-// pub mod signal;
-// pub mod speed_table;
-mod debug_overlay;
 mod time_controls;
 
+use crate::display::lamp::LampPlugin;
 use assets::{AssetHandles, AssetLoadingPlugin, LoadingState};
-use debug_overlay::DebugOverlayPlugin;
-use display::lamp::{LAMP_COLOR_GRAY, LAMP_COLOR_GREEN, LAMP_COLOR_RED};
-use level::{Level, LevelPlugin};
-use simulation::block::BlockMap;
-use simulation::messages::{BlockUpdate, LampUpdate, LampUpdateState, MessagingPlugin};
-use simulation::train::{NextTrainId, Train, spawn_train};
-use time_controls::TimeControlsPlugin;
 use bevy::asset::AssetPlugin;
 use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin, FrameTimeGraphConfig};
 use bevy::prelude::*;
+use bevy::sprite::Anchor;
 use bevy::window::PrimaryWindow;
-use common::LampId;
-use std::collections::HashMap;
+use debug_overlay::DebugOverlayPlugin;
+use level::{Level, LevelPlugin};
+use simulation::block::BlockMap;
+use simulation::messages::{BlockUpdate, LampUpdate, MessagingPlugin};
+use simulation::train::{NextTrainId, Train, spawn_train};
+use time_controls::TimeControlsPlugin;
 
 fn main() {
     App::new()
@@ -53,11 +48,12 @@ fn main() {
             AssetLoadingPlugin,
             TimeControlsPlugin,
             MessagingPlugin,
+            LampPlugin,
         ))
         .add_systems(OnExit(LoadingState::Loading), setup)
         .add_systems(
             Update,
-            (keyboard_handling, block_updates, lamp_updates).run_if(in_state(LoadingState::Loaded)),
+            (keyboard_handling, block_updates).run_if(in_state(LoadingState::Loaded)),
         )
         .add_systems(FixedUpdate, update.run_if(in_state(LoadingState::Loaded)))
         .run();
@@ -73,67 +69,17 @@ fn setup(
 ) {
     window.title = "Rail Dispatch".to_string();
 
-    commands.spawn(Camera2d);
-
     let board = handles.board.clone();
     let size = images.get(&board).unwrap().size_f32();
-    commands.spawn((
-        Sprite::from(board),
-        Transform {
-            translation: to_world_space(Vec2::ZERO, size, window.size()).extend(0.0),
-            scale: Vec3::ONE,
-            ..default()
-        },
-    ));
+    let cam_translation = (size * Anchor::BOTTOM_RIGHT.as_vec()).extend(0.0);
+
+    commands.spawn((Camera2d, Transform::from_translation(cam_translation)));
+    commands.spawn((Sprite::from(board), Anchor::TOP_LEFT));
 
     let level = levels.get(&handles.level).unwrap();
     *clear_color = ClearColor(level.background);
     commands.insert_resource(BlockMap::from_level(level));
     commands.insert_resource(NextTrainId::default());
-
-    let mut lamp_mapper = LampMapper(HashMap::new());
-    for lamp in level.lamps.iter() {
-        let size = Vec2::new(lamp.width, lamp.height);
-        let pos = to_world_space(Vec2::new(lamp.x, -(lamp.y + 1.0)), size, window.size());
-        let entity = commands
-            .spawn((
-                Lamp { id: lamp.id },
-                Pickable::default(),
-                Sprite {
-                    image: handles.lamp.clone(),
-                    color: if lamp.id >= 100 {
-                        LAMP_COLOR_GREEN
-                    } else {
-                        lamp.get_color(false)
-                    },
-                    image_mode: SpriteImageMode::Sliced(TextureSlicer {
-                        border: BorderRect::axes(2.0, 2.0),
-                        ..default()
-                    }),
-                    custom_size: Some(size),
-                    ..default()
-                },
-                Transform {
-                    translation: pos.extend(1.0),
-                    ..default()
-                },
-            ))
-            .id();
-        lamp_mapper.insert(lamp.id, entity);
-    }
-    commands.insert_resource(lamp_mapper);
-}
-
-#[derive(Component)]
-struct Lamp {
-    id: LampId,
-}
-
-#[derive(Resource, Deref, DerefMut)]
-struct LampMapper(HashMap<LampId, Entity>);
-
-fn to_world_space(pos: Vec2, size: Vec2, window_size: Vec2) -> Vec2 {
-    (window_size - size) * Vec2::new(-0.5, 0.5) + pos
 }
 
 fn keyboard_handling(
@@ -175,24 +121,4 @@ fn block_updates(
     mut lamp_updates: MessageWriter<LampUpdate>,
 ) {
     block_map.process_updates(&mut block_updates, &mut lamp_updates);
-}
-
-fn lamp_updates(
-    mut query: Query<&mut Sprite, With<Lamp>>,
-    lamp_mapper: Res<LampMapper>,
-    mut lamp_updates: MessageReader<LampUpdate>,
-) {
-    for update in lamp_updates.read() {
-        let color = if matches!(update.state, LampUpdateState::On) {
-            if update.lamp_id >= 100 {
-                LAMP_COLOR_GREEN
-            } else {
-                LAMP_COLOR_RED
-            }
-        } else {
-            LAMP_COLOR_GRAY
-        };
-        let entity = lamp_mapper[&update.lamp_id];
-        query.get_mut(entity).unwrap().color = color;
-    }
 }

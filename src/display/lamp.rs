@@ -1,15 +1,15 @@
+use crate::assets::{AssetHandles, LoadingState};
 use crate::common::LampId;
+use crate::level::{LampData, Level};
+use crate::simulation::messages::{LampUpdate, LampUpdateState};
 use bevy::prelude::*;
-use serde::Deserialize;
+use bevy::sprite::Anchor;
+use std::collections::HashMap;
 
-const DEFAULT_LAMP_HEIGHT: f32 = 5.0;
+pub const DEFAULT_LAMP_HEIGHT: f32 = 5.0;
 
-fn default_lamp_height() -> f32 {
+pub fn default_lamp_height() -> f32 {
     DEFAULT_LAMP_HEIGHT
-}
-
-fn default_lamp_state() -> LampState {
-    LampState::OFF(LAMP_COLOR_GRAY)
 }
 
 pub const LAMP_COLOR_GRAY: Color = Color::srgba_u8(0x55, 0x55, 0x55, 0xFF);
@@ -17,46 +17,112 @@ pub const LAMP_COLOR_YELLOW: Color = Color::srgba_u8(0xFF, 0xFF, 0x40, 0xFF);
 pub const LAMP_COLOR_RED: Color = Color::srgba_u8(0xFF, 0x20, 0x20, 0xFF);
 pub const LAMP_COLOR_GREEN: Color = Color::srgba_u8(0x00, 0xFF, 0x00, 0xFF);
 
-#[derive(Reflect, Clone)]
-pub enum LampState {
-    ON(Color),
-    OFF(Color),
-    FLASHING(Color),
+#[derive(Bundle)]
+pub struct LampBundle {
+    pub lamp: Lamp,
+    pub transform: Transform,
+    pub sprite: Sprite,
+    pub anchor: Anchor,
 }
 
-#[derive(Deserialize, Reflect, Clone)]
+impl LampBundle {
+    pub fn new(lamp: Lamp, image: Handle<Image>) -> Self {
+        let transform = Transform::from_translation(lamp.position.extend(1.0));
+        let color = lamp.get_initial_color();
+        let sprite_size = Some(lamp.size);
+        Self {
+            lamp,
+            transform,
+            anchor: Anchor::TOP_LEFT,
+            sprite: Sprite {
+                color,
+                image,
+                custom_size: sprite_size,
+                image_mode: SpriteImageMode::Sliced(TextureSlicer {
+                    border: BorderRect::axes(2.0, 2.0),
+                    ..default()
+                }),
+                ..default()
+            },
+        }
+    }
+}
+
+#[derive(Component)]
 pub struct Lamp {
     pub id: LampId,
-    pub x: f32,
-    pub y: f32,
-    pub width: f32,
-    #[serde(default = "default_lamp_height")]
-    pub height: f32,
-    #[serde(default = "default_lamp_state")]
-    #[serde(skip)]
-    pub state: LampState,
+    position: Vec2,
+    size: Vec2,
 }
 
 impl Lamp {
-    pub fn get_color(&self, flash_state: bool) -> Color {
-        match self.state {
-            LampState::ON(color) | LampState::OFF(color) => color,
-            LampState::FLASHING(color) => {
-                if flash_state {
-                    color
-                } else {
-                    LAMP_COLOR_GRAY
-                }
-            }
+    fn get_initial_color(&self) -> Color {
+        if self.id >= 100 {
+            self.get_base_color()
+        } else {
+            LAMP_COLOR_GRAY
         }
     }
 
-    // pub fn draw(&self, d: &mut RaylibDrawHandle, flash_state: bool) {
-    //     d.draw_rectangle_rounded(
-    //         Rectangle::new(self.x, self.y + 1.0, self.width, self.height),
-    //         1.0,
-    //         4,
-    //         self.get_color(flash_state),
-    //     )
-    // }
+    fn get_base_color(&self) -> Color {
+        if self.id >= 100 {
+            LAMP_COLOR_GREEN
+        } else {
+            LAMP_COLOR_RED
+        }
+    }
+
+    fn get_color(&self, state: LampUpdateState) -> Color {
+        match state {
+            LampUpdateState::On => self.get_base_color(),
+            LampUpdateState::Off => LAMP_COLOR_GRAY,
+            LampUpdateState::Pending => unimplemented!(),
+        }
+    }
+}
+
+impl From<&LampData> for Lamp {
+    fn from(lamp: &LampData) -> Self {
+        Self {
+            id: lamp.id,
+            position: vec2(lamp.x, -lamp.y),
+            size: vec2(lamp.width, lamp.height),
+        }
+    }
+}
+
+#[derive(Resource, Deref, DerefMut, Default)]
+pub struct LampMapper(HashMap<LampId, Entity>);
+
+pub struct LampPlugin;
+
+impl Plugin for LampPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(OnExit(LoadingState::Loading), setup)
+            .add_systems(Update, lamp_updates);
+    }
+}
+
+fn setup(handles: Res<AssetHandles>, levels: Res<Assets<Level>>, mut commands: Commands) {
+    let level = levels.get(&handles.level).unwrap();
+
+    let mut lamp_mapper = LampMapper(HashMap::new());
+    for lamp in &level.lamps {
+        let bundle = LampBundle::new(lamp.into(), handles.lamp.clone());
+        let entity = commands.spawn(bundle).id();
+        lamp_mapper.insert(lamp.id, entity);
+    }
+    commands.insert_resource(lamp_mapper);
+}
+
+pub fn lamp_updates(
+    mut query: Query<(&mut Sprite, &Lamp)>,
+    lamp_mapper: If<Res<LampMapper>>,
+    mut lamp_updates: MessageReader<LampUpdate>,
+) {
+    for update in lamp_updates.read() {
+        let entity = lamp_mapper[&update.lamp_id];
+        let (mut sprite, lamp) = query.get_mut(entity).unwrap();
+        sprite.color = lamp.get_color(update.state);
+    }
 }

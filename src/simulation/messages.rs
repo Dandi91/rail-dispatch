@@ -44,19 +44,11 @@ impl BlockUpdate {
     }
 }
 
+#[derive(Copy, Clone)]
 pub enum LampUpdateState {
     On,
     Off,
-}
-
-impl Not for LampUpdateState {
-    type Output = Self;
-    fn not(self) -> Self::Output {
-        match self {
-            LampUpdateState::On => LampUpdateState::Off,
-            LampUpdateState::Off => LampUpdateState::On,
-        }
-    }
+    Pending,
 }
 
 #[derive(Message)]
@@ -67,12 +59,9 @@ pub struct LampUpdate {
 
 impl LampUpdate {
     pub fn from_block_state(update_state: BlockUpdateState, lamp_id: LampId) -> Self {
-        LampUpdate {
-            lamp_id,
-            state: match update_state {
-                BlockUpdateState::Occupied => LampUpdateState::On,
-                BlockUpdateState::Freed => LampUpdateState::Off,
-            },
+        match update_state {
+            BlockUpdateState::Occupied => Self::on(lamp_id),
+            BlockUpdateState::Freed => Self::off(lamp_id),
         }
     }
 
