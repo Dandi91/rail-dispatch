@@ -23,9 +23,9 @@ impl Plugin for DebugOverlayPlugin {
 fn setup(mut commands: Commands) {
     commands.spawn((
         Text::new(
-            "Press G to spawn a train\n\
-                  Press H to despawn the oldest train\n\
-                  Press Up or Down to increase or lower the speed\n\
+            "G to spawn a new train\n\
+                  H to despawn the oldest train\n\
+                  Up or Down to change the speed\n\
                   Hover over lamps to see info",
         ),
         TextFont::from_font_size(16.0),

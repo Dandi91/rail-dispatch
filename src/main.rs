@@ -51,11 +51,11 @@ fn main() {
             TrainPlugin,
             MapPlugin,
         ))
-        .add_systems(Startup, camera_setup)
+        .add_systems(Startup, setup)
         .run();
 }
 
-fn camera_setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWindow>>) {
+fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWindow>>) {
     window.title = "Rail Dispatch".to_string();
     commands.spawn(Camera2d);
 }
