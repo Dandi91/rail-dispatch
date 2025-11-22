@@ -1,33 +1,61 @@
-#![windows_subsystem = "windows"]
-
-mod clock;
+// mod clock;
 mod common;
-mod consts;
 mod display;
-mod event;
-mod game_state;
+// mod game_state;
+mod assets;
+mod debug_overlay;
 mod level;
 mod simulation;
+mod time_controls;
 
-use crate::game_state::GameState;
-use raylib::prelude::*;
+use crate::simulation::block::MapPlugin;
+use crate::simulation::train::TrainPlugin;
+use assets::AssetLoadingPlugin;
+use bevy::asset::AssetPlugin;
+use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin, FrameTimeGraphConfig};
+use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
+use debug_overlay::DebugOverlayPlugin;
+use display::DisplayPlugin;
+use level::LevelPlugin;
+use simulation::messages::MessagingPlugin;
+use time_controls::TimeControlsPlugin;
 
 fn main() {
-    let title = "Rail Dispatch";
-    let (width, height) = (1440, 960);
-    let (mut rl, thread) = init().size(width, height).title(title).resizable().build();
-    rl.set_target_fps(60);
+    App::new()
+        .add_plugins((
+            DefaultPlugins.set(AssetPlugin {
+                file_path: "resources".to_string(),
+                ..default()
+            }),
+            FpsOverlayPlugin {
+                config: FpsOverlayConfig {
+                    text_config: TextFont::from_font_size(20.0),
+                    text_color: Color::srgb(0.0, 1.0, 0.0),
+                    frame_time_graph_config: FrameTimeGraphConfig {
+                        enabled: true,
+                        target_fps: 60.0,
+                        ..default()
+                    },
+                    ..default()
+                },
+            },
+        ))
+        .add_plugins((
+            DebugOverlayPlugin,
+            LevelPlugin,
+            AssetLoadingPlugin,
+            TimeControlsPlugin,
+            MessagingPlugin,
+            DisplayPlugin,
+            TrainPlugin,
+            MapPlugin,
+        ))
+        .add_systems(Startup, setup)
+        .run();
+}
 
-    let mut state = GameState::new(width as u32, height as u32);
-    state.start_game();
-
-    while !rl.window_should_close() {
-        let mut d = rl.begin_drawing(&thread);
-        state.process_updates(&d);
-        state.process_input(&mut d);
-        state.draw(&mut d, &thread);
-        d.draw_fps(3, 5);
-    }
-
-    state.stop_game();
+fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWindow>>) {
+    window.title = "Rail Dispatch".to_string();
+    commands.spawn(Camera2d);
 }

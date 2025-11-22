@@ -1,16 +1,17 @@
+use crate::assets::LoadingState;
 use crate::common::{Direction, TrainId};
-use crate::simulation::block::{BlockId, BlockMap, TrackPoint};
-use std::collections::VecDeque;
-use crate::simulation::updates::BlockUpdateQueue;
+use crate::simulation::block::{BlockMap, TrackPoint};
+use crate::simulation::messages::BlockUpdate;
+use bevy::prelude::*;
 
 #[derive(Default)]
-pub struct TrainControls {
+struct TrainControls {
     throttle: f64,
     brake_level: f64,
 }
 
 impl TrainControls {
-    pub fn as_percentage(&self) -> i32 {
+    fn as_percentage(&self) -> i32 {
         if self.throttle != 0.0 {
             (self.throttle * 100.0) as i32
         } else {
@@ -20,13 +21,13 @@ impl TrainControls {
 }
 
 #[derive(Copy, Clone)]
-pub enum VehicleType {
+enum VehicleType {
     Locomotive,
     RailCar,
 }
 
 #[derive(Copy, Clone)]
-pub struct RailVehicle {
+struct RailVehicle {
     vehicle_type: VehicleType,
     mass_kg: f64,
     length_m: f64,
@@ -37,7 +38,7 @@ pub struct RailVehicle {
 }
 
 impl RailVehicle {
-    pub fn new_car(mass_kg: f64, length_m: f64, cargo_mass_kg: f64) -> RailVehicle {
+    fn new_car(mass_kg: f64, length_m: f64, cargo_mass_kg: f64) -> RailVehicle {
         RailVehicle {
             vehicle_type: VehicleType::RailCar,
             mass_kg,
@@ -49,7 +50,7 @@ impl RailVehicle {
         }
     }
 
-    pub fn new_locomotive(mass_kg: f64, length_m: f64, power_kw: f64, max_tractive_effort_kn: f64) -> RailVehicle {
+    fn new_locomotive(mass_kg: f64, length_m: f64, power_kw: f64, max_tractive_effort_kn: f64) -> RailVehicle {
         RailVehicle {
             vehicle_type: VehicleType::Locomotive,
             mass_kg,
@@ -61,7 +62,7 @@ impl RailVehicle {
         }
     }
 
-    pub fn get_tractive_effort(&self, speed_mps: f64, throttle: f64) -> f64 {
+    fn get_tractive_effort(&self, speed_mps: f64, throttle: f64) -> f64 {
         match self.vehicle_type {
             VehicleType::Locomotive => {
                 let max_tractive_effort_n = self.max_tractive_effort_n * throttle;
@@ -78,6 +79,7 @@ impl RailVehicle {
     }
 }
 
+#[derive(Default)]
 struct TrainStats {
     length_m: f64,
     mass_kg: f64,
@@ -99,88 +101,37 @@ fn get_train_stats<'a, I: IntoIterator<Item = &'a RailVehicle>>(vehicles: I) -> 
     }
 }
 
-pub struct TrainSpawnState {
-    pub speed_mps: f64,
-    pub direction: Direction,
-    pub spawn_point: TrackPoint,
+#[derive(Resource, Default)]
+struct NextTrainId(TrainId);
+
+impl NextTrainId {
+    fn next(&mut self) -> TrainId {
+        self.0 = self.0.wrapping_add(1);
+        self.0
+    }
 }
 
-pub struct TrainStatusUpdate {
-    pub id: TrainId,
-    pub speed_mps: f64,
-    pub target_speed_mps: f64,
-    pub next_block_m: f64,
-    pub control_percentage: i32,
-    pub braking_distance_m: f64,
-    pub signal_distance_m: f64,
-}
-
-pub struct Train {
-    pub id: TrainId,
+#[derive(Component, Default)]
+struct Train {
+    id: TrainId,
+    number: String,
 
     controls: TrainControls,
     speed_mps: f64,
     target_speed_mps: f64,
+    target_speed_margin_mps: f64,
     acceleration_mps2: f64,
 
     direction: Direction,
     vehicles: Vec<RailVehicle>,
     stats: TrainStats,
 
-    occupied_blocks: VecDeque<BlockId>,
     front_position: TrackPoint,
     back_position: TrackPoint,
-
-    braking_distance_m: f64,
-    signal_distance_m: f64,
-    target_speed_margin_mps: f64,
-    position_updated: bool,
 }
 
 impl Train {
-    pub fn spawn_at(
-        id: TrainId,
-        state: TrainSpawnState,
-        rail_vehicles: Vec<RailVehicle>,
-        block_map: &BlockMap,
-        block_updates: &mut BlockUpdateQueue,
-    ) -> Self {
-        let stats = get_train_stats(&rail_vehicles);
-        let mut trace: Vec<TrackPoint> = block_map
-            .walk(&state.spawn_point, stats.length_m.max(1.0), state.direction.reverse())
-            .collect();
-        let occupied: VecDeque<_> = trace.iter().map(|x| x.block_id).collect();
-        occupied
-            .iter()
-            .cloned()
-            .for_each(|block_id| block_updates.occupied(block_id, id));
-
-        Train {
-            id,
-            controls: Default::default(),
-            speed_mps: state.speed_mps,
-            target_speed_mps: 0.0,
-            acceleration_mps2: 0.0,
-            direction: state.direction,
-            vehicles: rail_vehicles,
-            stats,
-            occupied_blocks: occupied,
-            front_position: state.spawn_point,
-            back_position: trace.pop().unwrap(),
-            signal_distance_m: 0.0,
-            braking_distance_m: 0.0,
-            target_speed_margin_mps: 0.0,
-            position_updated: true,
-        }
-    }
-
-    pub fn despawn(&self, block_updates: &mut BlockUpdateQueue) {
-        self.occupied_blocks
-            .iter()
-            .for_each(|&block_id| block_updates.freed(block_id, self.id))
-    }
-
-    pub fn set_target_speed_kmh(&mut self, speed_kmh: f64) {
+    fn set_target_speed_kmh(&mut self, speed_kmh: f64) {
         self.target_speed_margin_mps = rand::random::<f64>() * 0.5 + 0.35;
         self.target_speed_mps = speed_kmh / 3.6
     }
@@ -228,7 +179,7 @@ impl Train {
         0.0f64.max((speed_diff_mps * speed_sum) / (2.0 * deceleration_mps2))
     }
 
-    pub fn update(&mut self, dt: f64, map: &BlockMap, block_updates: &mut BlockUpdateQueue) {
+    fn update(&mut self, dt: f64, map: &BlockMap, block_updates: &mut MessageWriter<BlockUpdate>) {
         if dt <= 0.0 {
             return;
         }
@@ -259,9 +210,7 @@ impl Train {
         if dx > 0.0 {
             let (signal, distance_m) = map.lookup_signal(&self.front_position, self.direction);
             let allowed_speed_mps = signal.get_allowed_speed_mps();
-            self.braking_distance_m = self.get_braking_distance(allowed_speed_mps);
-            self.signal_distance_m = distance_m;
-            if distance_m < self.braking_distance_m {
+            if distance_m < self.get_braking_distance(allowed_speed_mps) {
                 self.target_speed_mps = allowed_speed_mps;
             }
 
@@ -276,34 +225,92 @@ impl Train {
 
             let new_front = map.step_by(&self.front_position, dx, self.direction);
             if self.front_position.block_id != new_front.block_id {
-                block_updates.occupied(new_front.block_id, self.id);
-                self.occupied_blocks.push_front(new_front.block_id);
+                block_updates.write(BlockUpdate::occupied(new_front.block_id, self.id));
             }
             let new_back = map.step_by(&self.front_position, self.stats.length_m, self.direction.reverse());
             if self.back_position.block_id != new_back.block_id {
-                let freed = self.occupied_blocks.pop_back().unwrap();
-                block_updates.freed(freed, self.id);
+                block_updates.write(BlockUpdate::freed(self.back_position.block_id, self.id));
             }
             self.front_position = new_front;
             self.back_position = new_back;
-            self.position_updated = true;
         }
     }
+}
 
-    pub fn get_state_update(&mut self, map: &BlockMap) -> Option<TrainStatusUpdate> {
-        if self.position_updated {
-            self.position_updated = false;
-            Some(TrainStatusUpdate {
-                id: self.id,
-                speed_mps: self.speed_mps,
-                target_speed_mps: self.target_speed_mps,
-                next_block_m: map.get_available_length(&self.front_position, self.direction),
-                control_percentage: self.controls.as_percentage(),
-                braking_distance_m: self.braking_distance_m,
-                signal_distance_m: self.signal_distance_m,
-            })
-        } else {
-            None
+pub struct TrainPlugin;
+
+impl Plugin for TrainPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<NextTrainId>()
+            .add_systems(Update, keyboard_handling.run_if(in_state(LoadingState::Loaded)))
+            .add_systems(FixedUpdate, update.run_if(in_state(LoadingState::Loaded)));
+    }
+}
+
+fn keyboard_handling(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut block_map: ResMut<BlockMap>,
+    query: Query<(Entity, &mut Train)>,
+    mut block_updates: MessageWriter<BlockUpdate>,
+    mut train_id: ResMut<NextTrainId>,
+    mut commands: Commands,
+) {
+    if keyboard_input.just_pressed(KeyCode::KeyG) {
+        let train = spawn_train(train_id.next(), &block_map, &mut block_updates);
+        info!("Train {} spawned with ID {}", train.number, train.id);
+        commands.spawn(train);
+    }
+    if keyboard_input.just_pressed(KeyCode::KeyH) {
+        if let Some((entity, train)) = query.iter().min_by_key(|(_, t)| t.id) {
+            info!("Train {} despawned with ID {}", train.number, train.id);
+            block_map.despawn_train(train.id, &mut block_updates);
+            commands.entity(entity).despawn();
         }
     }
+}
+
+fn update(
+    time: Res<Time>,
+    block_map: Res<BlockMap>,
+    mut query: Query<&mut Train>,
+    mut block_updates: MessageWriter<BlockUpdate>,
+) {
+    query.iter_mut().for_each(|mut train| {
+        train.update(time.delta_secs_f64(), &block_map, &mut block_updates);
+    });
+}
+
+fn spawn_train(train_id: TrainId, block_map: &BlockMap, block_updates: &mut MessageWriter<BlockUpdate>) -> Train {
+    let mut cars: Vec<RailVehicle> = Vec::with_capacity(100);
+    cars.extend([RailVehicle::new_locomotive(138_000.0, 18.15, 2250.0, 375.0); 2]);
+    cars.extend([RailVehicle::new_car(30_000.0, 15.0, 70_000.0); 60]);
+
+    let spawn_pos = TrackPoint {
+        block_id: 2,
+        offset_m: 600.0,
+    };
+    let direction = Direction::Even;
+    let stats = get_train_stats(&cars);
+    let trace: Vec<TrackPoint> = block_map
+        .walk(&spawn_pos, stats.length_m.max(1.0), direction.reverse())
+        .collect();
+
+    let mut train = Train {
+        id: train_id,
+        number: rand::random_range(1000..=9999).to_string(),
+        direction,
+        stats,
+        vehicles: cars,
+        front_position: spawn_pos,
+        back_position: trace.last().cloned().unwrap(),
+        ..default()
+    };
+
+    block_updates.write_batch(
+        trace
+            .iter()
+            .map(|point| BlockUpdate::occupied(point.block_id, train_id)),
+    );
+    train.set_target_speed_kmh(80.0);
+    train
 }

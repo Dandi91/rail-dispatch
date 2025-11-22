@@ -7,7 +7,6 @@ use crate::level::Level;
 use crate::simulation::engine::Engine;
 use itertools::Itertools;
 use once_cell::sync::Lazy;
-use raylib::prelude::*;
 use std::collections::HashMap;
 use std::sync::mpsc::TryRecvError;
 
