@@ -1,26 +1,13 @@
 use crate::assets::{AssetHandles, LoadingState};
 use crate::common::LampId;
-use crate::common::{BlockId, Direction, SignalId, TrainId};
+use crate::common::{BlockId, Direction, TrainId};
 use crate::level::{BlockData, ConnectionData, Level, SignalData};
-use crate::simulation::messages::{BlockUpdate, BlockUpdateState, LampUpdate};
+use crate::simulation::messages::{BlockUpdate, BlockUpdateState, LampUpdate, SignalUpdate, SignalUpdateState};
+use crate::simulation::signal::{SignalMap, TrackSignal};
+use crate::simulation::sparse_vec::{Chunkable, SparseVec};
 use bevy::prelude::*;
 use itertools::Itertools;
-use std::collections::{HashMap, HashSet};
-
-#[derive(Debug)]
-struct Chunk {
-    start_id: BlockId,
-    start_index: usize,
-}
-
-impl Default for Chunk {
-    fn default() -> Self {
-        Chunk {
-            start_id: 1,
-            start_index: 0,
-        }
-    }
-}
+use std::collections::{HashMap, HashSet, VecDeque};
 
 #[derive(Default)]
 struct BlockTracker {
@@ -76,35 +63,14 @@ impl BlockTracker {
 
 #[derive(Default, Resource)]
 pub struct BlockMap {
-    chunks: Vec<Chunk>,
-    blocks: Vec<Block>,
-    signals: HashMap<(BlockId, Direction), TrackSignal>,
+    blocks: SparseVec<Block>,
+    signals: SignalMap,
     tracker: BlockTracker,
 }
 
 impl BlockMap {
-    fn get_block_index(&self, id: &BlockId) -> Option<usize> {
-        match self.chunks.binary_search_by(|x| x.start_id.cmp(id)) {
-            Ok(x) => Some(self.chunks[x].start_index),
-            Err(x) => {
-                if x > 0 {
-                    let chunk = &self.chunks[x - 1];
-                    Some(chunk.start_index + (id - chunk.start_id) as usize)
-                } else {
-                    None
-                }
-            }
-        }
-    }
-
-    fn get_block_by_id(&self, id: &BlockId) -> Option<&Block> {
-        let index = self.get_block_index(id)?;
-        let candidate = self.blocks.get(index)?;
-        if candidate.id == *id { Some(candidate) } else { None }
-    }
-
     pub fn get_track_point(&self, block_id: BlockId, offset_m: f64) -> TrackPoint {
-        let block = self.get_block_by_id(&block_id).expect("block not found");
+        let block = self.blocks.get(block_id).expect("block not found");
 
         if offset_m > block.length_m {
             panic!("Incorrect track point, offset is greater than the block length");
@@ -117,7 +83,7 @@ impl BlockMap {
     }
 
     pub fn get_available_length(&self, point: &TrackPoint, direction: Direction) -> f64 {
-        let block = self.get_block_by_id(&point.block_id).expect("block not found");
+        let block = self.blocks.get(point.block_id).expect("block not found");
         if direction == Direction::Even {
             block.length_m - point.offset_m
         } else {
@@ -126,16 +92,12 @@ impl BlockMap {
     }
 
     pub fn get_next(&self, block_id: BlockId, direction: Direction) -> Option<&Block> {
-        let block = self.get_block_by_id(&block_id).expect("block not found");
+        let block = self.blocks.get(block_id).expect("block not found");
         let next = match direction {
             Direction::Even => block.next?,
             Direction::Odd => block.prev?,
         };
-        Some(self.get_block_by_id(&next).expect("block not found"))
-    }
-
-    pub fn get_signals(&self) -> impl Iterator<Item = &TrackSignal> {
-        self.signals.values()
+        Some(self.blocks.get(next).expect("block not found"))
     }
 
     pub fn despawn_train(&mut self, train_id: TrainId, block_updates: &mut MessageWriter<BlockUpdate>) {
@@ -144,30 +106,55 @@ impl BlockMap {
         }
     }
 
-    pub fn process_updates(
+    pub fn process_block_updates(
         &mut self,
         block_updates: &mut MessageReader<BlockUpdate>,
         lamp_updates: &mut MessageWriter<LampUpdate>,
+        signal_updates: &mut MessageWriter<SignalUpdate>,
     ) {
-        block_updates.read().for_each(|u| {
-            let changed = match u.state {
-                BlockUpdateState::Occupied => self.tracker.set_occupied(u.block_id, u.train_id),
-                BlockUpdateState::Freed => self.tracker.set_freed(u.block_id, u.train_id),
+        for update in block_updates.read() {
+            let changed = match update.state {
+                BlockUpdateState::Occupied => self.tracker.set_occupied(update.block_id, update.train_id),
+                BlockUpdateState::Freed => self.tracker.set_freed(update.block_id, update.train_id),
             };
 
             if !changed {
                 return;
             }
-            let block = self.get_block_by_id(&u.block_id).unwrap();
-            lamp_updates.write(LampUpdate::from_block_state(u.state, block.lamp_id));
-
-            lamp_updates.write_batch(
-                self.find_affected_signals(block, u.state)
-                    .map(|signal| LampUpdate::from_block_state(!u.state, signal.lamp_id)),
+            let block = self.blocks.get(update.block_id).unwrap();
+            lamp_updates.write(LampUpdate::from_block_state(update.state, block.lamp_id));
+            signal_updates.write_batch(
+                self.find_affected_signals(block, update.state)
+                    .map(|signal| SignalUpdate::new(signal.id, update.state.into())),
             );
-        });
+        }
     }
 
+    pub fn process_signal_updates(
+        &mut self,
+        signal_updates: &mut MessageReader<SignalUpdate>,
+        lamp_updates: &mut MessageWriter<LampUpdate>,
+    ) {
+        let mut queue = VecDeque::from_iter(signal_updates.read().copied());
+        while let Some(update) = queue.pop_front() {
+            let signal = self.signals.get(update.signal_id).expect("invalid signal ID");
+            let (prev, _) = self.lookup_signal(&signal.position, signal.direction.reverse());
+            match update.state {
+                SignalUpdateState::Open => {
+                    lamp_updates.write(LampUpdate::on(signal.lamp_id));
+                    queue.push_back(SignalUpdate::new(prev.id, SignalUpdateState::Invalidated));
+                }
+                SignalUpdateState::Invalidated => {}
+                SignalUpdateState::Closed => {
+                    lamp_updates.write(LampUpdate::off(signal.lamp_id));
+                    queue.push_back(SignalUpdate::new(prev.id, SignalUpdateState::Invalidated));
+                }
+            }
+        }
+    }
+
+    /// Given a block state update, returns an iterator of all signals that it affects
+    /// (at most 2 signals per block, one in each direction).
     fn find_affected_signals(&self, block: &Block, state: BlockUpdateState) -> impl Iterator<Item = &TrackSignal> {
         let point = block.middle();
         [Direction::Even, Direction::Odd]
@@ -175,16 +162,17 @@ impl BlockMap {
             .map(move |&direction| {
                 self.walk(&point, f64::INFINITY, direction)
                     .skip(1)
-                    .find_map(|p| self.signals.get(&(p.block_id, direction.reverse())))
+                    .find_map(|p| self.signals.find_signal(p.block_id, direction.reverse()))
             })
             .flatten()
             .filter(move |signal| matches!(state, BlockUpdateState::Occupied) || self.is_signal_free(signal))
     }
 
+    /// Checks if the blocks after the `signal` are free up until the next signal in the same direction
     fn is_signal_free(&self, signal: &TrackSignal) -> bool {
         self.walk(&signal.position, f64::INFINITY, signal.direction)
             .skip(1)
-            .take_while_inclusive(|p| self.signals.get(&(p.block_id, signal.direction)).is_none())
+            .take_while_inclusive(|p| self.signals.find_signal(p.block_id, signal.direction).is_none())
             .all(|p| self.tracker.is_block_free(p.block_id))
     }
 
@@ -200,7 +188,7 @@ impl BlockMap {
         let reversed = direction.reverse();
         let mut length = -self.get_available_length(start, reversed);
         for (idx, point) in self.walk(start, f64::INFINITY, direction).enumerate() {
-            if let Some(signal) = self.signals.get(&(point.block_id, direction)) {
+            if let Some(signal) = self.signals.find_signal(point.block_id, direction) {
                 let diff = direction.apply_sign(signal.position.offset_m - start.offset_m);
                 if idx > 0 || diff > 0.0 {
                     length += self.get_available_length(&signal.position, reversed);
@@ -213,7 +201,7 @@ impl BlockMap {
     }
 
     pub fn walk(&self, start: &TrackPoint, length_m: f64, direction: Direction) -> TrackWalker<'_> {
-        let block = self.get_block_by_id(&start.block_id).unwrap();
+        let block = self.blocks.get(start.block_id).unwrap();
         TrackWalker {
             block_map: self,
             current_block_id: start.block_id,
@@ -233,7 +221,7 @@ impl BlockMap {
             let trains = self.tracker.blocks.get(&block.id).unwrap().into_iter().join(", ");
             return Some(format!("Block ID: {}\nTrains: {}", block.id, trains));
         }
-        if let Some(signal) = self.signals.values().find(|&s| s.lamp_id == id) {
+        if let Some(signal) = self.signals.iter().find(|&s| s.lamp_id == id) {
             return Some(format!(
                 "Signal '{}' (ID {})\nAllowed speed: {:.0} km/h\nBlock ID: {}",
                 signal.name, signal.id, signal.speed_ctrl.allowed_kmh, signal.position.block_id
@@ -252,43 +240,17 @@ impl BlockMap {
         J: IntoIterator<Item = &'a SignalData>,
         K: IntoIterator<Item = &'a ConnectionData>,
     {
-        let signals: HashMap<(BlockId, Direction), TrackSignal> = signal_data
-            .into_iter()
-            .map(|x| ((x.block_id, x.direction), x.into()))
-            .collect();
-        let mut blocks: Vec<Block> = block_data.into_iter().map_into().collect();
-        blocks.sort_by_key(|block| block.id);
+        let mut blocks: SparseVec<Block> = block_data.into_iter().map_into().collect();
+        let signals: SignalMap = signal_data.into_iter().map_into().collect();
 
         for conn in connection_data {
-            let start = blocks
-                .binary_search_by(|block| block.id.cmp(&conn.start))
-                .expect("start block not found");
-            let end = blocks
-                .binary_search_by(|block| block.id.cmp(&conn.end))
-                .expect("end block not found");
-            blocks[start].next = Some(conn.end);
-            blocks[end].prev = Some(conn.start);
+            let start = blocks.get_mut(conn.start).expect("start block not found");
+            start.next = Some(conn.end);
+            let end = blocks.get_mut(conn.end).expect("end block not found");
+            end.prev = Some(conn.start);
         }
 
-        let mut chunks: Vec<Chunk> = vec![Chunk {
-            start_id: blocks[0].id,
-            start_index: 0,
-        }];
-        chunks.extend(
-            blocks
-                .iter()
-                .map(|x| x.id)
-                .enumerate()
-                .tuple_windows()
-                .filter(|(a, b)| b.1 - a.1 != 1)
-                .map(|(_, b)| Chunk {
-                    start_id: b.1,
-                    start_index: b.0,
-                }),
-        );
-
         BlockMap {
-            chunks,
             blocks,
             signals,
             ..Default::default()
@@ -316,58 +278,19 @@ impl From<&BlockData> for Block {
     }
 }
 
+impl Chunkable for Block {
+    #[inline]
+    fn get_id(&self) -> u32 {
+        self.id
+    }
+}
+
 impl Block {
     pub fn middle(&self) -> TrackPoint {
         TrackPoint {
             block_id: self.id,
             offset_m: self.length_m / 2.0,
         }
-    }
-}
-
-#[derive(Default, Debug, Clone)]
-pub struct SpeedControl {
-    allowed_kmh: f64,
-}
-
-#[derive(Default, Debug, Clone)]
-pub struct TrackSignal {
-    id: SignalId,
-    position: TrackPoint,
-    lamp_id: LampId,
-    direction: Direction,
-    name: String,
-    speed_ctrl: SpeedControl,
-}
-
-impl From<&SignalData> for TrackSignal {
-    fn from(value: &SignalData) -> Self {
-        TrackSignal {
-            id: value.id,
-            position: TrackPoint {
-                block_id: value.block_id,
-                offset_m: value.offset_m,
-            },
-            lamp_id: value.lamp_id,
-            direction: value.direction,
-            name: value.name.clone(),
-            speed_ctrl: SpeedControl { allowed_kmh: 80.0 },
-            ..Default::default()
-        }
-    }
-}
-
-impl TrackSignal {
-    pub fn get_allowed_speed_mps(&self) -> f64 {
-        self.speed_ctrl.allowed_kmh / 3.6
-    }
-
-    pub fn get_name(&self) -> &str {
-        self.name.as_str()
-    }
-
-    pub fn get_lamp_id(&self) -> LampId {
-        self.lamp_id
     }
 }
 
@@ -436,8 +359,10 @@ pub struct MapPlugin;
 
 impl Plugin for MapPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnExit(LoadingState::Loading), setup)
-            .add_systems(Update, block_updates.run_if(in_state(LoadingState::Loaded)));
+        app.add_systems(OnExit(LoadingState::Loading), setup).add_systems(
+            Update,
+            (block_updates, signal_updates).run_if(in_state(LoadingState::Loaded)),
+        );
     }
 }
 
@@ -450,51 +375,23 @@ fn block_updates(
     mut block_map: ResMut<BlockMap>,
     mut block_updates: MessageReader<BlockUpdate>,
     mut lamp_updates: MessageWriter<LampUpdate>,
+    mut signal_updates: MessageWriter<SignalUpdate>,
 ) {
-    block_map.process_updates(&mut block_updates, &mut lamp_updates);
+    block_map.process_block_updates(&mut block_updates, &mut lamp_updates, &mut signal_updates);
+}
+
+fn signal_updates(
+    mut block_map: ResMut<BlockMap>,
+    mut signal_updates: MessageReader<SignalUpdate>,
+    mut lamp_updates: MessageWriter<LampUpdate>,
+) {
+    block_map.process_signal_updates(&mut signal_updates, &mut lamp_updates);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::common::wrap;
-
-    impl PartialEq<(BlockId, usize)> for Chunk {
-        fn eq(&self, (start_id, start_index): &(BlockId, usize)) -> bool {
-            self.start_id == *start_id && self.start_index == *start_index
-        }
-    }
-
-    #[test]
-    fn test_sparse_block_map() {
-        let block_ids = [1, 2, 3, 50, 51, 52, 65, 70, 100, 101];
-        let block_data = block_ids.map(|x| BlockData {
-            id: x,
-            ..Default::default()
-        });
-        let block_map = BlockMap::from_iterable(&block_data, [], []);
-        assert_eq!(block_map.blocks.len(), 10);
-        assert_eq!(block_map.chunks.len(), 5);
-        assert_eq!(block_map.chunks[0], (1, 0));
-        assert_eq!(block_map.chunks[1], (50, 3));
-        assert_eq!(block_map.chunks[2], (65, 6));
-        assert_eq!(block_map.chunks[3], (70, 7));
-        assert_eq!(block_map.chunks[4], (100, 8));
-
-        let test_ids = [Ok(3), Ok(1), Ok(65), Ok(101), Err(0), Err(5), Err(69), Err(102)];
-        for test in test_ids.iter() {
-            match test {
-                Ok(id) => {
-                    let block = block_map.get_block_by_id(id);
-                    assert_eq!(block.unwrap().id, *id);
-                }
-                Err(id) => {
-                    let block = block_map.get_block_by_id(id);
-                    assert!(block.is_none());
-                }
-            }
-        }
-    }
 
     fn build_track() -> BlockMap {
         let blocks = [
@@ -539,9 +436,8 @@ mod tests {
             },
         ];
         BlockMap {
-            chunks: vec![Chunk::default()],
             blocks: blocks.into_iter().collect(),
-            signals: signals.map(|x| ((x.position.block_id, x.direction), x)).into(),
+            signals: signals.into_iter().collect(),
             ..Default::default()
         }
     }
@@ -577,12 +473,8 @@ mod tests {
             ]
         });
         BlockMap {
-            chunks: vec![Chunk::default()],
             blocks: blocks.into_iter().collect(),
-            signals: signals
-                .flatten()
-                .map(|x| ((x.position.block_id, x.direction), x))
-                .collect(),
+            signals: signals.flatten().into_iter().collect(),
             ..Default::default()
         }
     }
@@ -720,7 +612,7 @@ mod tests {
     #[test]
     fn affected_signals_busy() {
         let map = build_track_extended();
-        let block = map.get_block_by_id(&2).unwrap();
+        let block = map.blocks.get(2).unwrap();
         let mut result = map
             .find_affected_signals(block, BlockUpdateState::Occupied)
             .collect_vec();
@@ -735,7 +627,7 @@ mod tests {
     #[test]
     fn affected_signals_free() {
         let map = build_track_extended();
-        let block = map.get_block_by_id(&2).unwrap();
+        let block = map.blocks.get(2).unwrap();
         let mut result = map.find_affected_signals(block, BlockUpdateState::Freed).collect_vec();
         result.sort_by_key(|&signal| signal.position.block_id);
         assert_eq!(result.len(), 2);

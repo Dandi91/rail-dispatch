@@ -33,10 +33,7 @@ impl Direction {
     }
 }
 
-pub fn deserialize_color<'de, D>(deserializer: D) -> Result<Color, D::Error>
-where
-    D: Deserializer<'de>,
-{
+pub fn deserialize_color<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Color, D::Error> {
     let s = String::deserialize(deserializer)?;
     Srgba::hex(s).map(Color::from).map_err(Error::custom)
 }

@@ -1,5 +1,5 @@
-use crate::common::BlockId;
-use crate::common::{Direction, LampId, TrainId};
+use crate::common::{BlockId, SignalId};
+use crate::common::{LampId, TrainId};
 use bevy::prelude::*;
 use std::ops::Not;
 
@@ -80,15 +80,43 @@ impl LampUpdate {
     }
 }
 
+#[derive(Copy, Clone)]
+pub enum SignalUpdateState {
+    /// `Closed` to `Open` transition, when the guarded block becomes free
+    Open,
+    /// State change, which is not directly related to the guarded block state
+    Invalidated,
+    /// `Open` to `Closed` transition, when the guarded block becomes occupied
+    Closed,
+}
+
+impl From<BlockUpdateState> for SignalUpdateState {
+    fn from(update_state: BlockUpdateState) -> Self {
+        match update_state {
+            BlockUpdateState::Occupied => Self::Closed,
+            BlockUpdateState::Freed => Self::Open,
+        }
+    }
+}
+
+#[derive(Message, Copy, Clone)]
+pub struct SignalUpdate {
+    pub signal_id: SignalId,
+    pub state: SignalUpdateState,
+}
+
+impl SignalUpdate {
+    pub fn new(signal_id: SignalId, state: SignalUpdateState) -> Self {
+        Self { signal_id, state }
+    }
+}
+
 pub struct MessagingPlugin;
 
 impl Plugin for MessagingPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<BlockUpdate>().add_message::<LampUpdate>();
+        app.add_message::<BlockUpdate>()
+            .add_message::<LampUpdate>()
+            .add_message::<SignalUpdate>();
     }
-}
-
-pub struct SignalUpdate {
-    pub block_id: BlockId,
-    pub direction: Direction,
 }
