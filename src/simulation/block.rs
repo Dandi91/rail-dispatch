@@ -125,7 +125,7 @@ impl BlockMap {
             lamp_updates.write(LampUpdate::from_block_state(update.state, block.lamp_id));
             signal_updates.write_batch(
                 self.find_affected_signals(block, update.state)
-                    .map(|signal| SignalUpdate::new(signal.id, update.state.into())),
+                    .map(|signal| SignalUpdate::from_block_change(signal.id, update.state)),
             );
         }
     }
@@ -135,20 +135,16 @@ impl BlockMap {
         signal_updates: &mut MessageReader<SignalUpdate>,
         lamp_updates: &mut MessageWriter<LampUpdate>,
     ) {
-        let mut queue = VecDeque::from_iter(signal_updates.read().copied());
+        let mut queue = VecDeque::from_iter(signal_updates.read().cloned());
         while let Some(update) = queue.pop_front() {
             let signal = self.signals.get(update.signal_id).expect("invalid signal ID");
             let (prev, _) = self.lookup_signal(&signal.position, signal.direction.reverse());
             match update.state {
-                SignalUpdateState::Open => {
-                    lamp_updates.write(LampUpdate::on(signal.lamp_id));
-                    queue.push_back(SignalUpdate::new(prev.id, SignalUpdateState::Invalidated));
+                SignalUpdateState::BlockChange(block_update) => {
+                    lamp_updates.write(LampUpdate::from_block_state(!block_update, signal.lamp_id));
+                    queue.push_back(SignalUpdate::new(prev.id, SignalUpdateState::SignalPropagation));
                 }
-                SignalUpdateState::Invalidated => {}
-                SignalUpdateState::Closed => {
-                    lamp_updates.write(LampUpdate::off(signal.lamp_id));
-                    queue.push_back(SignalUpdate::new(prev.id, SignalUpdateState::Invalidated));
-                }
+                SignalUpdateState::SignalPropagation => {}
             }
         }
     }
@@ -294,7 +290,7 @@ impl Block {
     }
 }
 
-#[derive(PartialEq, Clone, Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct TrackPoint {
     pub block_id: BlockId,
     pub offset_m: f64,

@@ -49,12 +49,12 @@ pub enum SignalAspect {
     Forbidding,
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default)]
 pub struct SpeedControl {
     pub allowed_kmh: f64,
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default)]
 pub struct TrackSignal {
     pub id: SignalId,
     pub position: TrackPoint,

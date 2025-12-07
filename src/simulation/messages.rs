@@ -82,24 +82,13 @@ impl LampUpdate {
 
 #[derive(Copy, Clone)]
 pub enum SignalUpdateState {
-    /// `Closed` to `Open` transition, when the guarded block becomes free
-    Open,
-    /// State change, which is not directly related to the guarded block state
-    Invalidated,
-    /// `Open` to `Closed` transition, when the guarded block becomes occupied
-    Closed,
+    /// Update caused by the change of the guarded block state
+    BlockChange(BlockUpdateState),
+    /// Update caused by the change of the next signal state
+    SignalPropagation,
 }
 
-impl From<BlockUpdateState> for SignalUpdateState {
-    fn from(update_state: BlockUpdateState) -> Self {
-        match update_state {
-            BlockUpdateState::Occupied => Self::Closed,
-            BlockUpdateState::Freed => Self::Open,
-        }
-    }
-}
-
-#[derive(Message, Copy, Clone)]
+#[derive(Message, Clone)]
 pub struct SignalUpdate {
     pub signal_id: SignalId,
     pub state: SignalUpdateState,
@@ -108,6 +97,10 @@ pub struct SignalUpdate {
 impl SignalUpdate {
     pub fn new(signal_id: SignalId, state: SignalUpdateState) -> Self {
         Self { signal_id, state }
+    }
+
+    pub fn from_block_change(signal_id: SignalId, state: BlockUpdateState) -> Self {
+        Self::new(signal_id, SignalUpdateState::BlockChange(state))
     }
 }
 

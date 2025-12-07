@@ -30,7 +30,7 @@ pub struct LampData {
     pub height: f32,
 }
 
-#[derive(Deserialize, Reflect, Default)]
+#[derive(Deserialize, Reflect)]
 pub struct BlockData {
     pub id: BlockId,
     pub length: f64,
@@ -43,7 +43,7 @@ pub struct ConnectionData {
     pub end: BlockId,
 }
 
-#[derive(Deserialize, Reflect, Clone)]
+#[derive(Deserialize, Reflect)]
 pub struct SignalData {
     pub id: SignalId,
     pub lamp_id: LampId,

@@ -215,7 +215,7 @@ impl Train {
             }
 
             if distance_m < dx {
-                println!(
+                info!(
                     "Passed signal {} at {:.2} km/h, allowed speed {:.2} km/h",
                     signal.get_name(),
                     self.speed_mps * 3.6,
