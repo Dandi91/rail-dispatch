@@ -208,7 +208,7 @@ impl Train {
 
         let dx = self.speed_mps * dt + 0.5 * self.acceleration_mps2 * dt.powi(2);
         if dx > 0.0 {
-            let (signal, distance_m) = map.lookup_signal(&self.front_position, self.direction);
+            let (signal, distance_m) = map.lookup_signal_forward(&self.front_position, self.direction);
             let allowed_speed_mps = signal.get_allowed_speed_mps();
             if distance_m < self.get_braking_distance(allowed_speed_mps) {
                 self.target_speed_mps = allowed_speed_mps;

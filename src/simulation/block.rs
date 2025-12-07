@@ -138,10 +138,12 @@ impl BlockMap {
         let mut queue = VecDeque::from_iter(signal_updates.read().cloned());
         while let Some(update) = queue.pop_front() {
             let signal = self.signals.get(update.signal_id).expect("invalid signal ID");
-            let (prev, _) = self.lookup_signal(&signal.position, signal.direction.reverse());
+            let (prev, _) = self.lookup_signal(&signal.position, signal.direction.reverse(), signal.direction);
             match update.state {
                 SignalUpdateState::BlockChange(block_update) => {
                     lamp_updates.write(LampUpdate::from_block_state(!block_update, signal.lamp_id));
+                    // TODO: apply the change to the signal state
+                    // TODO: if state ends up modified, propagate the change to the next signal
                     queue.push_back(SignalUpdate::new(prev.id, SignalUpdateState::SignalPropagation));
                 }
                 SignalUpdateState::SignalPropagation => {}
@@ -179,12 +181,24 @@ impl BlockMap {
             .expect("expected non-zero length")
     }
 
-    /// Tries to find a signal in the `direction` along the track, returning tuple of signal and distance to it
-    pub fn lookup_signal(&self, start: &TrackPoint, direction: Direction) -> (&TrackSignal, f64) {
+    /// Tries to find a forward facing signal placed in the `direction` along the track,
+    /// returning tuple of signal and distance to it
+    pub fn lookup_signal_forward(&self, start: &TrackPoint, direction: Direction) -> (&TrackSignal, f64) {
+        self.lookup_signal(start, direction, direction)
+    }
+
+    /// Tries to find a signal placed in the `direction` along the track with a given `signal_direction`,
+    /// returning tuple of signal and distance to it
+    fn lookup_signal(
+        &self,
+        start: &TrackPoint,
+        direction: Direction,
+        signal_direction: Direction,
+    ) -> (&TrackSignal, f64) {
         let reversed = direction.reverse();
         let mut length = -self.get_available_length(start, reversed);
         for (idx, point) in self.walk(start, f64::INFINITY, direction).enumerate() {
-            if let Some(signal) = self.signals.find_signal(point.block_id, direction) {
+            if let Some(signal) = self.signals.find_signal(point.block_id, signal_direction) {
                 let diff = direction.apply_sign(signal.position.offset_m - start.offset_m);
                 if idx > 0 || diff > 0.0 {
                     length += self.get_available_length(&signal.position, reversed);
@@ -564,7 +578,7 @@ mod tests {
             block_id: 1,
             offset_m: 200.0,
         };
-        let (signal, distance) = map.lookup_signal(&point, Direction::Even);
+        let (signal, distance) = map.lookup_signal_forward(&point, Direction::Even);
         assert_eq!(signal.id, 1);
         assert_eq!(signal.position.block_id, 3);
         assert_eq!(distance, 2700.0);
@@ -577,7 +591,7 @@ mod tests {
             block_id: 3,
             offset_m: 1100.0,
         };
-        let (signal, distance) = map.lookup_signal(&point, Direction::Odd);
+        let (signal, distance) = map.lookup_signal_forward(&point, Direction::Odd);
         assert_eq!(signal.id, 2);
         assert_eq!(signal.position.block_id, 1);
         assert_eq!(distance, 2350.0);
@@ -591,7 +605,7 @@ mod tests {
             block_id: 3,
             offset_m: 1450.0,
         };
-        map.lookup_signal(&point, Direction::Even);
+        map.lookup_signal_forward(&point, Direction::Even);
     }
 
     #[test]
@@ -602,7 +616,7 @@ mod tests {
             block_id: 1,
             offset_m: 200.0,
         };
-        map.lookup_signal(&point, Direction::Odd);
+        map.lookup_signal_forward(&point, Direction::Odd);
     }
 
     #[test]

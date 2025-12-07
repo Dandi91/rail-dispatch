@@ -70,7 +70,7 @@ impl Lamp {
         match state {
             LampUpdateState::On => self.get_base_color(),
             LampUpdateState::Off => LAMP_COLOR_GRAY,
-            LampUpdateState::Pending => unimplemented!(),
+            LampUpdateState::Pending => LAMP_COLOR_YELLOW,
         }
     }
 }
