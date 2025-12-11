@@ -1,6 +1,8 @@
 use bevy::prelude::*;
+use serde::de::Visitor;
 use serde::{Deserialize, Deserializer, de::Error};
 use serde_repr::Deserialize_repr;
+use std::fmt;
 use std::ops::Neg;
 use std::time::Instant;
 
@@ -33,9 +35,33 @@ impl Direction {
     }
 }
 
-pub fn deserialize_color<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Color, D::Error> {
-    let s = String::deserialize(deserializer)?;
-    Srgba::hex(s).map(Color::from).map_err(Error::custom)
+#[derive(Reflect, Copy, Clone)]
+pub struct HexColor(Color);
+
+impl<'de> Deserialize<'de> for HexColor {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct ColorVisitor;
+
+        impl<'de> Visitor<'de> for ColorVisitor {
+            type Value = HexColor;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a hex color string (e.g., #ff0000)")
+            }
+
+            fn visit_str<E: Error>(self, v: &str) -> Result<Self::Value, E> {
+                Srgba::hex(v).map_err(E::custom).map(|c| HexColor(Color::Srgba(c)))
+            }
+        }
+
+        deserializer.deserialize_str(ColorVisitor)
+    }
+}
+
+impl From<HexColor> for Color {
+    fn from(c: HexColor) -> Self {
+        c.0
+    }
 }
 
 #[allow(dead_code)]

@@ -128,7 +128,7 @@ fn setup(
 ) {
     let level = levels.get(&handles.level).unwrap();
     let board_size = images.get(&handles.board).unwrap().size_f32();
-    *clear_color = ClearColor(level.background);
+    *clear_color = ClearColor(level.background.into());
     camera_transform.translation = (board_size * Anchor::BOTTOM_RIGHT.as_vec()).extend(0.0);
 
     commands.spawn(DisplayBoardBundle::new(handles.board.clone()));

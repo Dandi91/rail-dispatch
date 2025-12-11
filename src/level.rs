@@ -1,4 +1,4 @@
-use crate::common::SignalId;
+use crate::common::{HexColor, SignalId};
 use crate::display::DEFAULT_LAMP_HEIGHT;
 use crate::{common::BlockId, common::Direction, common::LampId};
 use bevy::{asset::AssetLoader, asset::LoadContext, asset::io::Reader, prelude::*};
@@ -12,8 +12,7 @@ pub struct Level {
     pub blocks: Vec<BlockData>,
     pub connections: Vec<ConnectionData>,
     pub signals: Vec<SignalData>,
-    #[serde(deserialize_with = "crate::common::deserialize_color")]
-    pub background: Color,
+    pub background: HexColor,
 }
 
 fn default_lamp_height() -> f32 {
