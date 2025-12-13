@@ -2,6 +2,7 @@ use crate::assets::LoadingState;
 use crate::common::{Direction, TrainId};
 use crate::simulation::block::{BlockMap, TrackPoint};
 use crate::simulation::messages::BlockUpdate;
+use crate::simulation::signal::SpeedLimit;
 use bevy::prelude::*;
 
 #[derive(Default)]
@@ -112,15 +113,14 @@ impl NextTrainId {
 }
 
 #[derive(Component, Default)]
-struct Train {
-    id: TrainId,
-    number: String,
+pub struct Train {
+    pub id: TrainId,
+    pub number: String,
 
     controls: TrainControls,
     speed_mps: f64,
     target_speed_mps: f64,
     target_speed_margin_mps: f64,
-    acceleration_mps2: f64,
 
     direction: Direction,
     vehicles: Vec<RailVehicle>,
@@ -131,19 +131,29 @@ struct Train {
 }
 
 impl Train {
-    fn set_target_speed_kmh(&mut self, speed_kmh: f64) {
+    fn set_target_speed_mps(&mut self, speed_mps: f64) {
         self.target_speed_margin_mps = rand::random::<f64>() * 0.5 + 0.35;
-        self.target_speed_mps = speed_kmh / 3.6
+        let speed_kmh = speed_mps * 3.6;
+        info!("Train {} setting target speed to {:.2} km/h", self.number, speed_kmh);
+        self.target_speed_mps = speed_mps;
     }
 
-    /// Simple throttle and brake controls based on difference between current and target speed.
+    pub fn get_speed_kmh(&self) -> f64 {
+        self.speed_mps * 3.6
+    }
+
+    pub fn get_target_speed_kmh(&self) -> f64 {
+        self.target_speed_mps * 3.6
+    }
+
+    /// Simple throttle and brake controls based on the difference between current and target speed.
     /// Returns `TrainControls` with values between 0.0 and 1.0.
     fn calculate_controls(&self) -> TrainControls {
         let speed_diff_mps = (self.target_speed_mps - self.target_speed_margin_mps) - self.speed_mps;
         if self.speed_mps < 0.001 && self.target_speed_mps < 0.01 {
             return TrainControls {
                 throttle: 0.0,
-                brake_level: 1.0, // Full brake when target is effectively zero
+                brake_level: 1.0, // Full brake when the target is effectively zero
             };
         }
 
@@ -166,17 +176,18 @@ impl Train {
         TrainControls::default()
     }
 
-    fn get_braking_distance(&self, target_speed_mps: f64) -> f64 {
-        if target_speed_mps > self.speed_mps {
-            return 0.0;
-        }
+    fn get_braking_distance(&self, speed_limit: SpeedLimit) -> Option<f64> {
+        let target_speed_mps = match speed_limit {
+            SpeedLimit::Unrestricted => return None,
+            SpeedLimit::Restricted(speed_limit_kmh) => speed_limit_kmh / 3.6,
+        };
 
         let braking_force = self.stats.max_braking_force_n * 0.8;
         let deceleration_mps2 = braking_force / self.stats.mass_kg;
 
         let speed_diff_mps = self.speed_mps - target_speed_mps;
         let speed_sum = self.speed_mps + target_speed_mps;
-        0.0f64.max((speed_diff_mps * speed_sum) / (2.0 * deceleration_mps2))
+        Some(0.0f64.max((speed_diff_mps * speed_sum) / (2.0 * deceleration_mps2)))
     }
 
     fn update(&mut self, dt: f64, map: &BlockMap, block_updates: &mut MessageWriter<BlockUpdate>) {
@@ -194,35 +205,52 @@ impl Train {
         let braking_force = self.stats.max_braking_force_n * self.controls.brake_level;
         let net_force_n = tractive_effort - braking_force;
 
-        self.acceleration_mps2 = if self.stats.mass_kg > 0.0 {
+        let mut acceleration_mps2 = if self.stats.mass_kg > 0.0 {
             net_force_n / self.stats.mass_kg
         } else {
             0.0
         };
-        self.speed_mps += self.acceleration_mps2 * dt;
+        self.speed_mps += acceleration_mps2 * dt;
 
         if self.speed_mps < 0.1 && self.target_speed_mps < 0.25 {
+            if self.speed_mps >= 0.0 {
+                info!("Train {} stopped at {}", self.number, self.front_position);
+            }
             self.speed_mps = 0.0; // brake to full stop
-            self.acceleration_mps2 = 0.0;
+            acceleration_mps2 = 0.0;
         }
 
-        let dx = self.speed_mps * dt + 0.5 * self.acceleration_mps2 * dt.powi(2);
+        let dx = self.speed_mps * dt + 0.5 * acceleration_mps2 * dt.powi(2);
+        let (signal, distance_m) = map.lookup_signal_forward(&self.front_position, self.direction);
+        let speed_control = &signal.speed_ctrl;
+        let braking_distance = self.get_braking_distance(speed_control.passing_kmh);
+        let speed_limit = match braking_distance {
+            None => speed_control.approaching_kmh,
+            Some(braking_distance_m) => {
+                let approaching_mps = speed_control.approaching_kmh.to_mps(80.0);
+                if distance_m > braking_distance_m && self.target_speed_mps >= approaching_mps {
+                    speed_control.approaching_kmh
+                } else {
+                    speed_control.passing_kmh
+                }
+            }
+        };
+        let target_speed_mps = speed_limit.to_mps(80.0);
+        if self.target_speed_mps != target_speed_mps {
+            self.set_target_speed_mps(target_speed_mps);
+        }
+
+        if distance_m < dx {
+            info!(
+                "Train {} passed signal {} at {:.2} km/h, allowed speed {}",
+                self.number,
+                signal.name,
+                self.get_speed_kmh(),
+                speed_control.passing_kmh,
+            );
+        }
+
         if dx > 0.0 {
-            let (signal, distance_m) = map.lookup_signal_forward(&self.front_position, self.direction);
-            let allowed_speed_mps = signal.get_allowed_speed_mps();
-            if distance_m < self.get_braking_distance(allowed_speed_mps) {
-                self.target_speed_mps = allowed_speed_mps;
-            }
-
-            if distance_m < dx {
-                info!(
-                    "Passed signal {} at {:.2} km/h, allowed speed {:.2} km/h",
-                    signal.get_name(),
-                    self.speed_mps * 3.6,
-                    allowed_speed_mps * 3.6
-                );
-            }
-
             let new_front = map.step_by(&self.front_position, dx, self.direction);
             if self.front_position.block_id != new_front.block_id {
                 block_updates.write(BlockUpdate::occupied(new_front.block_id, self.id));
@@ -295,7 +323,13 @@ fn spawn_train(train_id: TrainId, block_map: &BlockMap, block_updates: &mut Mess
         .walk(&spawn_pos, stats.length_m.max(1.0), direction.reverse())
         .collect();
 
-    let mut train = Train {
+    block_updates.write_batch(
+        trace
+            .iter()
+            .map(|point| BlockUpdate::occupied(point.block_id, train_id)),
+    );
+
+    Train {
         id: train_id,
         number: rand::random_range(1000..=9999).to_string(),
         direction,
@@ -304,13 +338,5 @@ fn spawn_train(train_id: TrainId, block_map: &BlockMap, block_updates: &mut Mess
         front_position: spawn_pos,
         back_position: trace.last().cloned().unwrap(),
         ..default()
-    };
-
-    block_updates.write_batch(
-        trace
-            .iter()
-            .map(|point| BlockUpdate::occupied(point.block_id, train_id)),
-    );
-    train.set_target_speed_kmh(80.0);
-    train
+    }
 }

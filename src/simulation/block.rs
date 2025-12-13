@@ -3,11 +3,12 @@ use crate::common::LampId;
 use crate::common::{BlockId, Direction, TrainId};
 use crate::level::{BlockData, ConnectionData, Level, SignalData};
 use crate::simulation::messages::{BlockUpdate, BlockUpdateState, LampUpdate, SignalUpdate, SignalUpdateState};
-use crate::simulation::signal::{SignalMap, TrackSignal};
+use crate::simulation::signal::{SignalAspect, SignalMap, TrackSignal};
 use crate::simulation::sparse_vec::{Chunkable, SparseVec};
 use bevy::prelude::*;
 use itertools::Itertools;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fmt::Formatter;
 
 #[derive(Default)]
 struct BlockTracker {
@@ -138,15 +139,30 @@ impl BlockMap {
         let mut queue = VecDeque::from_iter(signal_updates.read().cloned());
         while let Some(update) = queue.pop_front() {
             let signal = self.signals.get(update.signal_id).expect("invalid signal ID");
-            let (prev, _) = self.lookup_signal(&signal.position, signal.direction.reverse(), signal.direction);
-            match update.state {
-                SignalUpdateState::BlockChange(block_update) => {
-                    lamp_updates.write(LampUpdate::from_block_state(!block_update, signal.lamp_id));
-                    // TODO: apply the change to the signal state
-                    // TODO: if state ends up modified, propagate the change to the next signal
-                    queue.push_back(SignalUpdate::new(prev.id, SignalUpdateState::SignalPropagation));
+            let aspect = match update.state {
+                SignalUpdateState::BlockChange(block_update) => match block_update {
+                    BlockUpdateState::Occupied => SignalAspect::Forbidding,
+                    BlockUpdateState::Freed => {
+                        let (next, _) = self.lookup_signal_forward(&signal.position, signal.direction);
+                        next.speed_ctrl.aspect.chain()
+                    }
+                },
+                SignalUpdateState::SignalPropagation(next_signal_aspect) => {
+                    if self.is_signal_free(signal) {
+                        next_signal_aspect.chain()
+                    } else {
+                        SignalAspect::Forbidding
+                    }
                 }
-                SignalUpdateState::SignalPropagation => {}
+            };
+
+            if aspect != signal.speed_ctrl.aspect {
+                lamp_updates.write(LampUpdate::from_signal_aspect(aspect, signal.lamp_id));
+                let (prev, _) = self.lookup_signal(&signal.position, signal.direction.reverse(), signal.direction);
+                queue.push_back(SignalUpdate::new(prev.id, SignalUpdateState::SignalPropagation(aspect)));
+
+                let signal = self.signals.get_mut(update.signal_id).expect("invalid signal ID");
+                signal.change_aspect(aspect);
             }
         }
     }
@@ -223,21 +239,24 @@ impl BlockMap {
         }
     }
 
-    pub fn get_lamp_info(&self, id: LampId) -> Option<String> {
+    pub fn get_lamp_info(&self, id: LampId) -> (String, Option<&Vec<TrainId>>) {
         if let Some(block) = self.blocks.iter().find(|&b| b.lamp_id == id) {
             if self.tracker.is_block_free(block.id) {
-                return Some(format!("Block ID: {}\nFree", block.id));
+                return (format!("Block ID: {}\nFree", block.id), None);
             }
-            let trains = self.tracker.blocks.get(&block.id).unwrap().into_iter().join(", ");
-            return Some(format!("Block ID: {}\nTrains: {}", block.id, trains));
+            let trains = &self.tracker.blocks[&block.id];
+            return (format!("Block ID: {}", block.id), Some(trains));
         }
         if let Some(signal) = self.signals.iter().find(|&s| s.lamp_id == id) {
-            return Some(format!(
-                "Signal '{}' (ID {})\nAllowed speed: {:.0} km/h\nBlock ID: {}",
-                signal.name, signal.id, signal.speed_ctrl.allowed_kmh, signal.position.block_id
-            ));
+            return (
+                format!(
+                    "Signal '{}' (ID {})\nAllowed speed: {}\nBlock ID: {}",
+                    signal.name, signal.id, signal.speed_ctrl.passing_kmh, signal.position.block_id
+                ),
+                None,
+            );
         }
-        None
+        unreachable!("Lamp ID {} not found", id)
     }
 
     pub fn from_level(level: &Level) -> Self {
@@ -308,6 +327,12 @@ impl Block {
 pub struct TrackPoint {
     pub block_id: BlockId,
     pub offset_m: f64,
+}
+
+impl std::fmt::Display for TrackPoint {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "block {} at {:.0} m", self.block_id, self.offset_m)
+    }
 }
 
 pub struct TrackWalker<'a> {

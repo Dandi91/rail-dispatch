@@ -4,6 +4,7 @@ use crate::simulation::block::TrackPoint;
 use crate::simulation::sparse_vec::{Chunkable, SparseVec};
 use itertools::Itertools;
 use std::collections::HashMap;
+use std::fmt::Display;
 
 #[derive(Default)]
 pub struct SignalMap {
@@ -15,6 +16,11 @@ impl SignalMap {
     #[inline]
     pub fn get(&self, id: SignalId) -> Option<&TrackSignal> {
         self.signals.get(id)
+    }
+
+    #[inline]
+    pub fn get_mut(&mut self, id: SignalId) -> Option<&mut TrackSignal> {
+        self.signals.get_mut(id)
     }
 
     pub fn find_signal(&self, block_id: BlockId, direction: Direction) -> Option<&TrackSignal> {
@@ -40,18 +46,78 @@ impl FromIterator<TrackSignal> for SignalMap {
     }
 }
 
+#[derive(Default, Copy, Clone)]
+pub enum SpeedLimit {
+    #[default]
+    Unrestricted,
+    Restricted(f64),
+}
+
+impl Display for SpeedLimit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SpeedLimit::Unrestricted => write!(f, "unrestricted"),
+            SpeedLimit::Restricted(speed) => write!(f, "{:.0} km/h", speed),
+        }
+    }
+}
+
+impl SpeedLimit {
+    pub fn to_mps(&self, unrestricted_kmh: f64) -> f64 {
+        match self {
+            SpeedLimit::Unrestricted => unrestricted_kmh / 3.6,
+            SpeedLimit::Restricted(speed_kmh) => speed_kmh / 3.6,
+        }
+    }
+}
+
+#[derive(Default, Copy, Clone, PartialEq)]
 pub enum SignalAspect {
     /// Signal does not restrict the train's speed
+    #[default]
     Unrestricting,
     /// Signal restricts the train's speed to the allowed value
-    Restricting(f64),
+    Restricting,
     /// Signal forbids the train from moving past it
     Forbidding,
 }
 
+impl SignalAspect {
+    pub fn chain(&self) -> SignalAspect {
+        match self {
+            SignalAspect::Unrestricting | SignalAspect::Restricting => SignalAspect::Unrestricting,
+            SignalAspect::Forbidding => SignalAspect::Restricting,
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct SpeedControl {
-    pub allowed_kmh: f64,
+    pub aspect: SignalAspect,
+    pub passing_kmh: SpeedLimit,
+    pub approaching_kmh: SpeedLimit,
+}
+
+impl SpeedControl {
+    pub fn chain(&self) -> SpeedControl {
+        Self::default_for_aspect(self.aspect.chain())
+    }
+
+    pub fn default_for_aspect(aspect: SignalAspect) -> SpeedControl {
+        match aspect {
+            SignalAspect::Unrestricting => SpeedControl::default(),
+            SignalAspect::Restricting => SpeedControl {
+                aspect,
+                passing_kmh: SpeedLimit::Restricted(40.0),
+                approaching_kmh: SpeedLimit::Unrestricted,
+            },
+            SignalAspect::Forbidding => SpeedControl {
+                aspect,
+                passing_kmh: SpeedLimit::Restricted(0.0),
+                approaching_kmh: SpeedLimit::Restricted(40.0),
+            },
+        }
+    }
 }
 
 #[derive(Default)]
@@ -75,7 +141,6 @@ impl From<&SignalData> for TrackSignal {
             lamp_id: value.lamp_id,
             direction: value.direction,
             name: value.name.clone(),
-            speed_ctrl: SpeedControl { allowed_kmh: 80.0 },
             ..Default::default()
         }
     }
@@ -89,18 +154,7 @@ impl Chunkable for TrackSignal {
 }
 
 impl TrackSignal {
-    #[inline]
-    pub fn get_allowed_speed_mps(&self) -> f64 {
-        self.speed_ctrl.allowed_kmh / 3.6
-    }
-
-    #[inline]
-    pub fn get_name(&self) -> &str {
-        self.name.as_str()
-    }
-
-    #[inline]
-    pub fn get_lamp_id(&self) -> LampId {
-        self.lamp_id
+    pub fn change_aspect(&mut self, aspect: SignalAspect) {
+        self.speed_ctrl = SpeedControl::default_for_aspect(aspect);
     }
 }

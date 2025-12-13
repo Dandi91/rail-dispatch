@@ -1,5 +1,6 @@
 use crate::common::{BlockId, SignalId};
 use crate::common::{LampId, TrainId};
+use crate::simulation::signal::SignalAspect;
 use bevy::prelude::*;
 use std::ops::Not;
 
@@ -65,6 +66,17 @@ impl LampUpdate {
         }
     }
 
+    pub fn from_signal_aspect(aspect: SignalAspect, lamp_id: LampId) -> Self {
+        Self {
+            lamp_id,
+            state: match aspect {
+                SignalAspect::Unrestricting => LampUpdateState::On,
+                SignalAspect::Restricting => LampUpdateState::Pending,
+                SignalAspect::Forbidding => LampUpdateState::Off,
+            },
+        }
+    }
+
     pub fn on(lamp_id: LampId) -> Self {
         LampUpdate {
             lamp_id,
@@ -85,7 +97,7 @@ pub enum SignalUpdateState {
     /// Update caused by the change of the guarded block state
     BlockChange(BlockUpdateState),
     /// Update caused by the change of the next signal state
-    SignalPropagation,
+    SignalPropagation(SignalAspect),
 }
 
 #[derive(Message, Clone)]

@@ -1,5 +1,6 @@
 use crate::display::Lamp;
 use crate::simulation::block::BlockMap;
+use crate::simulation::train::Train;
 use bevy::prelude::*;
 use std::ops::DerefMut;
 
@@ -54,8 +55,9 @@ fn setup(mut commands: Commands) {
             Visibility::Hidden,
         ))
         .with_children(|p| {
-            p.spawn((Text::default(), TextFont::from_font_size(10.0)));
-            p.spawn((Text::default(), TextFont::from_font_size(10.0)));
+            p.spawn((Text::default(), TextFont::from_font_size(10.0))); // lamp id
+            p.spawn((Text::default(), TextFont::from_font_size(10.0))); // lamp info
+            p.spawn((Text::default(), TextFont::from_font_size(10.0))); // train info
         });
 
     commands.spawn((DebugObserverOver, Observer::new(on_over_lamp)));
@@ -75,15 +77,29 @@ fn on_add_lamp(
 fn on_over_lamp(
     event: On<Pointer<Over>>,
     block_map: If<Res<BlockMap>>,
-    mut query: Query<&Lamp>,
+    trains: Query<&Train>,
+    mut lamps: Query<&Lamp>,
     mut info: Single<(&Children, &mut Visibility, &mut Node), With<DetailsInfo>>,
     mut writer: TextUiWriter,
 ) {
     let target = event.entity;
-    if let Ok(lamp) = query.get_mut(target) {
+    if let Ok(lamp) = lamps.get_mut(target) {
         let (children, vis, node) = info.deref_mut();
         *writer.text(children[0], 0) = format!("Lamp ID: {}", lamp.id);
-        *writer.text(children[1], 0) = block_map.get_lamp_info(lamp.id).unwrap();
+        let (lamp_str, train_ids) = block_map.get_lamp_info(lamp.id);
+        *writer.text(children[1], 0) = lamp_str;
+        if let Some(train_ids) = train_ids {
+            let first = *train_ids.first().unwrap();
+            let train = trains.iter().find(|t| t.id == first).unwrap();
+            *writer.text(children[2], 0) = format!(
+                "Train {}, speed {:.0} km/h, target speed {:.0} km/h",
+                train.number,
+                train.get_speed_kmh(),
+                train.get_target_speed_kmh()
+            );
+        } else {
+            writer.text(children[2], 0).clear();
+        }
         **vis = Visibility::Visible;
         node.left = px(event.pointer_location.position.x + 10.0);
         node.top = px(event.pointer_location.position.y + 10.0);
