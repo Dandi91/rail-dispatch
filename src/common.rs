@@ -36,7 +36,7 @@ impl Direction {
 }
 
 #[derive(Reflect, Copy, Clone)]
-pub struct HexColor(Color);
+pub struct HexColor(Srgba);
 
 impl<'de> Deserialize<'de> for HexColor {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -50,7 +50,7 @@ impl<'de> Deserialize<'de> for HexColor {
             }
 
             fn visit_str<E: Error>(self, v: &str) -> Result<Self::Value, E> {
-                Srgba::hex(v).map_err(E::custom).map(|c| HexColor(Color::Srgba(c)))
+                Srgba::hex(v).map_err(E::custom).map(HexColor)
             }
         }
 
@@ -60,7 +60,7 @@ impl<'de> Deserialize<'de> for HexColor {
 
 impl From<HexColor> for Color {
     fn from(c: HexColor) -> Self {
-        c.0
+        c.0.into()
     }
 }
 
