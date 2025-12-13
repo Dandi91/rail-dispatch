@@ -46,9 +46,8 @@ impl FromIterator<TrackSignal> for SignalMap {
     }
 }
 
-#[derive(Default, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub enum SpeedLimit {
-    #[default]
     Unrestricted,
     Restricted(f64),
 }
@@ -91,21 +90,26 @@ impl SignalAspect {
     }
 }
 
-#[derive(Default)]
 pub struct SpeedControl {
     pub aspect: SignalAspect,
     pub passing_kmh: SpeedLimit,
     pub approaching_kmh: SpeedLimit,
 }
 
-impl SpeedControl {
-    pub fn chain(&self) -> SpeedControl {
-        Self::default_for_aspect(self.aspect.chain())
+impl Default for SpeedControl {
+    fn default() -> Self {
+        Self::default_for_aspect(SignalAspect::default())
     }
+}
 
+impl SpeedControl {
     pub fn default_for_aspect(aspect: SignalAspect) -> SpeedControl {
         match aspect {
-            SignalAspect::Unrestricting => SpeedControl::default(),
+            SignalAspect::Unrestricting => SpeedControl {
+                aspect,
+                passing_kmh: SpeedLimit::Unrestricted,
+                approaching_kmh: SpeedLimit::Unrestricted,
+            },
             SignalAspect::Restricting => SpeedControl {
                 aspect,
                 passing_kmh: SpeedLimit::Restricted(40.0),

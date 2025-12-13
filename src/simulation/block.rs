@@ -107,7 +107,7 @@ impl BlockMap {
         }
     }
 
-    pub fn process_block_updates(
+    fn process_block_updates(
         &mut self,
         block_updates: &mut MessageReader<BlockUpdate>,
         lamp_updates: &mut MessageWriter<LampUpdate>,
@@ -131,7 +131,7 @@ impl BlockMap {
         }
     }
 
-    pub fn process_signal_updates(
+    fn process_signal_updates(
         &mut self,
         signal_updates: &mut MessageReader<SignalUpdate>,
         lamp_updates: &mut MessageWriter<LampUpdate>,
@@ -165,6 +165,14 @@ impl BlockMap {
                 signal.change_aspect(aspect);
             }
         }
+    }
+
+    fn init_signal_lamps(&self, lamp_updates: &mut MessageWriter<LampUpdate>) {
+        lamp_updates.write_batch(
+            self.signals
+                .iter()
+                .map(|signal| LampUpdate::from_signal_aspect(signal.speed_ctrl.aspect, signal.lamp_id)),
+        );
     }
 
     /// Given a block state update, returns an iterator of all signals that it affects
@@ -394,16 +402,21 @@ pub struct MapPlugin;
 
 impl Plugin for MapPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnExit(LoadingState::Loading), setup).add_systems(
-            Update,
-            (block_updates, signal_updates).run_if(in_state(LoadingState::Loaded)),
-        );
+        app.add_systems(OnExit(LoadingState::Loading), (setup, init_signal_lamps).chain())
+            .add_systems(
+                Update,
+                (block_updates, signal_updates).run_if(in_state(LoadingState::Loaded)),
+            );
     }
 }
 
 fn setup(handles: Res<AssetHandles>, levels: Res<Assets<Level>>, mut commands: Commands) {
     let level = levels.get(&handles.level).unwrap();
     commands.insert_resource(BlockMap::from_level(level));
+}
+
+fn init_signal_lamps(block_map: Res<BlockMap>, mut lamp_updates: MessageWriter<LampUpdate>) {
+    block_map.init_signal_lamps(&mut lamp_updates);
 }
 
 fn block_updates(

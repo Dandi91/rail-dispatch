@@ -22,14 +22,13 @@ struct LampBundle {
 impl LampBundle {
     fn new(lamp: Lamp, image: Handle<Image>) -> Self {
         let transform = Transform::from_translation(lamp.position.extend(1.0));
-        let color = lamp.get_initial_color();
         let sprite_size = Some(lamp.size);
         Self {
             lamp,
             transform,
             sprite: Sprite {
-                color,
                 image,
+                color: LAMP_COLOR_GRAY,
                 custom_size: sprite_size,
                 image_mode: SpriteImageMode::Sliced(TextureSlicer {
                     border: BorderRect::axes(2.0, 2.0),
@@ -50,14 +49,6 @@ pub struct Lamp {
 }
 
 impl Lamp {
-    fn get_initial_color(&self) -> Color {
-        if self.id >= 100 {
-            self.get_base_color()
-        } else {
-            LAMP_COLOR_GRAY
-        }
-    }
-
     fn get_base_color(&self) -> Color {
         if self.id >= 100 {
             LAMP_COLOR_GREEN
