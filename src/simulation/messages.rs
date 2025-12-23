@@ -1,5 +1,4 @@
-use crate::common::{BlockId, SignalId};
-use crate::common::{LampId, TrainId};
+use crate::common::{BlockId, LampId, SignalId, TrainId};
 use crate::simulation::signal::SignalAspect;
 use bevy::prelude::*;
 use std::ops::Not;

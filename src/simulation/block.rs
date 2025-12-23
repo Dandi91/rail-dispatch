@@ -70,19 +70,6 @@ pub struct BlockMap {
 }
 
 impl BlockMap {
-    pub fn get_track_point(&self, block_id: BlockId, offset_m: f64) -> TrackPoint {
-        let block = self.blocks.get(block_id).expect("block not found");
-
-        if offset_m > block.length_m {
-            panic!("Incorrect track point, offset is greater than the block length");
-        }
-        if offset_m < 0. {
-            panic!("Incorrect track point, offset cannot be negative");
-        }
-
-        TrackPoint { block_id, offset_m }
-    }
-
     pub fn get_available_length(&self, point: &TrackPoint, direction: Direction) -> f64 {
         let block = self.blocks.get(point.block_id).expect("block not found");
         if direction == Direction::Even {
@@ -337,6 +324,12 @@ pub struct TrackPoint {
     pub offset_m: f64,
 }
 
+impl TrackPoint {
+    pub fn new(block_id: BlockId, offset_m: f64) -> Self {
+        Self { block_id, offset_m }
+    }
+}
+
 impl std::fmt::Display for TrackPoint {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "block {} at {:.0} m", self.block_id, self.offset_m)
@@ -368,10 +361,7 @@ impl Iterator for TrackWalker<'_> {
         if self.length_m < self.block_available_m {
             let new_offset = self.offset_m + self.direction.apply_sign(self.length_m);
             self.length_m = 0.0;
-            Some(TrackPoint {
-                block_id: self.current_block_id,
-                offset_m: new_offset,
-            })
+            Some(TrackPoint::new(self.current_block_id, new_offset))
         } else {
             self.length_m -= self.block_available_m;
             let result_block_id = self.current_block_id;
@@ -387,13 +377,13 @@ impl Iterator for TrackWalker<'_> {
             } else {
                 self.offset_m = f64::NAN;
             }
-            Some(TrackPoint {
-                block_id: result_block_id,
-                offset_m: match self.direction {
+            Some(TrackPoint::new(
+                result_block_id,
+                match self.direction {
                     Direction::Even => result_block_length,
                     Direction::Odd => 0.0,
                 },
-            })
+            ))
         }
     }
 }
@@ -466,19 +456,13 @@ mod tests {
         let signals = [
             TrackSignal {
                 id: 1,
-                position: TrackPoint {
-                    block_id: 3,
-                    offset_m: 1400.0,
-                },
+                position: TrackPoint::new(3, 1400.0),
                 direction: Direction::Even,
                 ..Default::default()
             },
             TrackSignal {
                 id: 2,
-                position: TrackPoint {
-                    block_id: 1,
-                    offset_m: 250.0,
-                },
+                position: TrackPoint::new(1, 250.0),
                 direction: Direction::Odd,
                 ..Default::default()
             },
@@ -502,19 +486,13 @@ mod tests {
             [
                 TrackSignal {
                     id: idx * 2 - 1,
-                    position: TrackPoint {
-                        block_id: idx,
-                        offset_m: 490.0,
-                    },
+                    position: TrackPoint::new(idx, 490.0),
                     direction: Direction::Even,
                     ..Default::default()
                 },
                 TrackSignal {
                     id: idx * 2,
-                    position: TrackPoint {
-                        block_id: idx,
-                        offset_m: 10.0,
-                    },
+                    position: TrackPoint::new(idx, 10.0),
                     direction: Direction::Odd,
                     ..Default::default()
                 },
@@ -530,11 +508,8 @@ mod tests {
     #[test]
     fn walk_same_block_even() {
         let map = build_track();
-        let point = TrackPoint {
-            block_id: 1,
-            offset_m: 250.0,
-        };
-        let visited: Vec<TrackPoint> = map.walk(&point, 450.0, Direction::Even).collect();
+        let point = TrackPoint::new(1, 250.0);
+        let visited: Vec<_> = map.walk(&point, 450.0, Direction::Even).collect();
         assert_eq!(visited.len(), 1);
         assert_eq!(visited[0].block_id, 1);
         assert_eq!(visited[0].offset_m, 700.0);
@@ -543,11 +518,8 @@ mod tests {
     #[test]
     fn walk_same_block_odd() {
         let map = build_track();
-        let point = TrackPoint {
-            block_id: 1,
-            offset_m: 750.0,
-        };
-        let visited: Vec<TrackPoint> = map.walk(&point, 650.0, Direction::Odd).collect();
+        let point = TrackPoint::new(1, 750.0);
+        let visited: Vec<_> = map.walk(&point, 650.0, Direction::Odd).collect();
         assert_eq!(visited.len(), 1);
         assert_eq!(visited[0].block_id, 1);
         assert_eq!(visited[0].offset_m, 100.0);
@@ -556,11 +528,8 @@ mod tests {
     #[test]
     fn walk_track_even() {
         let map = build_track();
-        let point = TrackPoint {
-            block_id: 1,
-            offset_m: 250.0,
-        };
-        let visited: Vec<TrackPoint> = map.walk(&point, 2500.0, Direction::Even).collect();
+        let point = TrackPoint::new(1, 250.0);
+        let visited: Vec<_> = map.walk(&point, 2500.0, Direction::Even).collect();
         assert_eq!(visited.len(), 3);
         assert_eq!(visited[0].block_id, 1);
         assert_eq!(visited[1].block_id, 2);
@@ -573,11 +542,8 @@ mod tests {
     #[test]
     fn walk_track_odd() {
         let map = build_track();
-        let point = TrackPoint {
-            block_id: 3,
-            offset_m: 1050.0,
-        };
-        let visited: Vec<TrackPoint> = map.walk(&point, 2500.0, Direction::Odd).collect();
+        let point = TrackPoint::new(3, 1050.0);
+        let visited: Vec<_> = map.walk(&point, 2500.0, Direction::Odd).collect();
         assert_eq!(visited.len(), 3);
         assert_eq!(visited[0].block_id, 3);
         assert_eq!(visited[1].block_id, 2);
@@ -591,10 +557,7 @@ mod tests {
     #[should_panic(expected = "No further block length available. Still need 1850 m")]
     fn walk_track_even_panic() {
         let map = build_track();
-        let point = TrackPoint {
-            block_id: 3,
-            offset_m: 850.0,
-        };
+        let point = TrackPoint::new(3, 850.0);
         map.walk(&point, 2500.0, Direction::Even).collect_vec();
     }
 
@@ -602,20 +565,14 @@ mod tests {
     #[should_panic(expected = "No further block length available. Still need 2350 m")]
     fn walk_track_odd_panic() {
         let map = build_track();
-        let point = TrackPoint {
-            block_id: 1,
-            offset_m: 150.0,
-        };
+        let point = TrackPoint::new(1, 150.0);
         map.walk(&point, 2500.0, Direction::Odd).collect_vec();
     }
 
     #[test]
     fn find_signal_even() {
         let map = build_track();
-        let point = TrackPoint {
-            block_id: 1,
-            offset_m: 200.0,
-        };
+        let point = TrackPoint::new(1, 200.0);
         let (signal, distance) = map.lookup_signal_forward(&point, Direction::Even);
         assert_eq!(signal.id, 1);
         assert_eq!(signal.position.block_id, 3);
@@ -625,10 +582,7 @@ mod tests {
     #[test]
     fn find_signal_odd() {
         let map = build_track();
-        let point = TrackPoint {
-            block_id: 3,
-            offset_m: 1100.0,
-        };
+        let point = TrackPoint::new(3, 1100.0);
         let (signal, distance) = map.lookup_signal_forward(&point, Direction::Odd);
         assert_eq!(signal.id, 2);
         assert_eq!(signal.position.block_id, 1);
@@ -639,10 +593,7 @@ mod tests {
     #[should_panic(expected = "No further block length available. Still need inf m")]
     fn find_signal_even_same_block_behind() {
         let map = build_track();
-        let point = TrackPoint {
-            block_id: 3,
-            offset_m: 1450.0,
-        };
+        let point = TrackPoint::new(3, 1450.0);
         map.lookup_signal_forward(&point, Direction::Even);
     }
 
@@ -650,10 +601,7 @@ mod tests {
     #[should_panic(expected = "No further block length available. Still need inf m")]
     fn find_signal_odd_same_block_behind() {
         let map = build_track();
-        let point = TrackPoint {
-            block_id: 1,
-            offset_m: 200.0,
-        };
+        let point = TrackPoint::new(1, 200.0);
         map.lookup_signal_forward(&point, Direction::Odd);
     }
 

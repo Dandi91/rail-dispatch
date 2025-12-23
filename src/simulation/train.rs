@@ -228,9 +228,8 @@ impl Train {
             None => speed_control.approaching_kmh,
             Some(braking_distance_m) => {
                 let approaching_mps = speed_control.approaching_kmh.to_mps(80.0);
-                if (distance_m > braking_distance_m && self.target_speed_mps >= approaching_mps)
-                    || distance_m > (braking_distance_m + 200.0)
-                {
+                let need_slowdown = distance_m > braking_distance_m && self.target_speed_mps >= approaching_mps;
+                if need_slowdown || distance_m > braking_distance_m + 200.0 {
                     speed_control.approaching_kmh
                 } else {
                     speed_control.passing_kmh
