@@ -1,9 +1,7 @@
-// mod clock;
-mod common;
-mod display;
-// mod game_state;
 mod assets;
+mod common;
 mod debug_overlay;
+mod display;
 mod level;
 mod simulation;
 mod time_controls;
