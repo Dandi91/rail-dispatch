@@ -303,7 +303,6 @@ impl From<&BlockData> for Block {
 }
 
 impl Chunkable for Block {
-    #[inline]
     fn get_id(&self) -> u32 {
         self.id
     }

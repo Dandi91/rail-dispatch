@@ -13,7 +13,6 @@ pub struct SparseVec<T: Chunkable> {
 }
 
 impl<T: Chunkable> SparseVec<T> {
-    #[inline]
     pub fn get_item_index(&self, id: u32) -> Option<usize> {
         match self.chunks.binary_search_by(|x| x.start_id.cmp(&id)) {
             Ok(x) => Some(self.chunks[x].start_index),
@@ -28,7 +27,6 @@ impl<T: Chunkable> SparseVec<T> {
         }
     }
 
-    #[inline]
     pub fn get(&self, id: u32) -> Option<&T> {
         let index = self.get_item_index(id)?;
         let candidate = self.items.get(index)?;
@@ -39,7 +37,6 @@ impl<T: Chunkable> SparseVec<T> {
         }
     }
 
-    #[inline]
     pub fn get_mut(&mut self, id: u32) -> Option<&mut T> {
         let index = self.get_item_index(id)?;
         let candidate = self.items.get_mut(index)?;
@@ -50,12 +47,10 @@ impl<T: Chunkable> SparseVec<T> {
         }
     }
 
-    #[inline]
     pub fn iter(&self) -> std::slice::Iter<'_, T> {
         self.items.iter()
     }
 
-    #[inline]
     pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, T> {
         self.items.iter_mut()
     }
@@ -89,7 +84,6 @@ impl<T: Chunkable> IntoIterator for SparseVec<T> {
     type Item = T;
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
-    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.items.into_iter()
     }
@@ -99,7 +93,6 @@ impl<'a, T: Chunkable> IntoIterator for &'a SparseVec<T> {
     type Item = &'a T;
     type IntoIter = std::slice::Iter<'a, T>;
 
-    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
@@ -109,7 +102,6 @@ impl<'a, T: Chunkable> IntoIterator for &'a mut SparseVec<T> {
     type Item = &'a mut T;
     type IntoIter = std::slice::IterMut<'a, T>;
 
-    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.iter_mut()
     }

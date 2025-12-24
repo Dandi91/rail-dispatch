@@ -13,12 +13,10 @@ pub struct SignalMap {
 }
 
 impl SignalMap {
-    #[inline]
     pub fn get(&self, id: SignalId) -> Option<&TrackSignal> {
         self.signals.get(id)
     }
 
-    #[inline]
     pub fn get_mut(&mut self, id: SignalId) -> Option<&mut TrackSignal> {
         self.signals.get_mut(id)
     }
@@ -28,7 +26,6 @@ impl SignalMap {
         self.signals.get(*signal_id)
     }
 
-    #[inline]
     pub fn iter(&self) -> std::slice::Iter<'_, TrackSignal> {
         self.signals.iter()
     }
@@ -151,7 +148,6 @@ impl From<&SignalData> for TrackSignal {
 }
 
 impl Chunkable for TrackSignal {
-    #[inline]
     fn get_id(&self) -> u32 {
         self.id
     }
