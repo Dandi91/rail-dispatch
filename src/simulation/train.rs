@@ -1,5 +1,5 @@
 use crate::assets::LoadingState;
-use crate::common::{Direction, TrainId};
+use crate::common::{Direction, SpeedConv, TrainId};
 use crate::simulation::block::{BlockMap, TrackPoint};
 use crate::simulation::messages::BlockUpdate;
 use crate::simulation::signal::SpeedLimit;
@@ -118,6 +118,7 @@ pub struct Train {
     pub number: String,
 
     controls: TrainControls,
+    top_speed_kmh: f64,
     speed_mps: f64,
     target_speed_mps: f64,
     target_speed_margin_mps: f64,
@@ -133,17 +134,20 @@ pub struct Train {
 impl Train {
     fn set_target_speed_mps(&mut self, speed_mps: f64) {
         self.target_speed_margin_mps = rand::random::<f64>() * 0.5 + 0.35;
-        let speed_kmh = speed_mps * 3.6;
-        info!("Train {} setting target speed to {:.2} km/h", self.number, speed_kmh);
         self.target_speed_mps = speed_mps;
+        info!(
+            "Train {} setting target speed to {:.2} km/h",
+            self.number,
+            speed_mps.kmh()
+        );
     }
 
     pub fn get_speed_kmh(&self) -> f64 {
-        self.speed_mps * 3.6
+        self.speed_mps.kmh()
     }
 
     pub fn get_target_speed_kmh(&self) -> f64 {
-        self.target_speed_mps * 3.6
+        self.target_speed_mps.kmh()
     }
 
     /// Simple throttle and brake controls based on the difference between current and target speed.
@@ -179,7 +183,7 @@ impl Train {
     fn get_braking_distance(&self, speed_limit: SpeedLimit) -> Option<f64> {
         let target_speed_mps = match speed_limit {
             SpeedLimit::Unrestricted => return None,
-            SpeedLimit::Restricted(speed_limit_kmh) => speed_limit_kmh / 3.6,
+            SpeedLimit::Restricted(speed_limit_kmh) => speed_limit_kmh.mps(),
         };
 
         let braking_force = self.stats.max_braking_force_n * 0.8;
@@ -221,34 +225,39 @@ impl Train {
         }
 
         let dx = self.speed_mps * dt + 0.5 * acceleration_mps2 * dt.powi(2);
-        let (signal, distance_m) = map.lookup_signal_forward(&self.front_position, self.direction);
-        let speed_control = &signal.speed_ctrl;
-        let braking_distance = self.get_braking_distance(speed_control.passing_kmh);
-        let speed_limit = match braking_distance {
-            None => speed_control.approaching_kmh,
-            Some(braking_distance_m) => {
-                let approaching_mps = speed_control.approaching_kmh.to_mps(80.0);
-                let need_slowdown = distance_m > braking_distance_m && self.target_speed_mps >= approaching_mps;
-                if need_slowdown || distance_m > braking_distance_m + 200.0 {
-                    speed_control.approaching_kmh
-                } else {
-                    speed_control.passing_kmh
+        let target_speed_mps = match map.lookup_signal_forward(&self.front_position, self.direction) {
+            Some((signal, distance_m)) => {
+                let speeds = signal.speed_ctrl.apply_limit(self.top_speed_kmh);
+                let braking_distance = self.get_braking_distance(signal.speed_ctrl.passing_kmh);
+                let speed_limit_kmh = match braking_distance {
+                    None => speeds.approaching_kmh,
+                    Some(braking_distance_m) => {
+                        let approaching_mps = speeds.approaching_kmh.mps();
+                        let need_slowdown = distance_m > braking_distance_m && self.target_speed_mps >= approaching_mps;
+                        if need_slowdown || distance_m > braking_distance_m + 200.0 {
+                            speeds.approaching_kmh
+                        } else {
+                            speeds.passing_kmh
+                        }
+                    }
+                };
+
+                if distance_m < dx {
+                    info!(
+                        "Train {} passed signal {} at {:.2} km/h, allowed speed {:.2} km/h",
+                        self.number,
+                        signal.name,
+                        self.speed_mps.kmh(),
+                        speeds.passing_kmh,
+                    );
                 }
+                speed_limit_kmh.mps()
             }
+            None => 20.0.mps(),
         };
-        let target_speed_mps = speed_limit.to_mps(80.0);
+
         if self.target_speed_mps != target_speed_mps {
             self.set_target_speed_mps(target_speed_mps);
-        }
-
-        if distance_m < dx {
-            info!(
-                "Train {} passed signal {} at {:.2} km/h, allowed speed {}",
-                self.number,
-                signal.name,
-                self.get_speed_kmh(),
-                speed_control.passing_kmh,
-            );
         }
 
         if dx > 0.0 {
@@ -336,6 +345,7 @@ fn spawn_train(train_id: TrainId, block_map: &BlockMap, block_updates: &mut Mess
         direction,
         stats,
         vehicles: cars,
+        top_speed_kmh: 80.0,
         front_position: spawn_pos,
         back_position: trace.last().cloned().unwrap(),
         ..default()

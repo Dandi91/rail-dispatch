@@ -59,10 +59,10 @@ impl Display for SpeedLimit {
 }
 
 impl SpeedLimit {
-    pub fn to_mps(&self, unrestricted_kmh: f64) -> f64 {
+    pub fn apply_limit(&self, limit_kmh: f64) -> f64 {
         match self {
-            SpeedLimit::Unrestricted => unrestricted_kmh / 3.6,
-            SpeedLimit::Restricted(speed_kmh) => speed_kmh / 3.6,
+            SpeedLimit::Unrestricted => limit_kmh,
+            SpeedLimit::Restricted(speed_kmh) => speed_kmh.min(limit_kmh),
         }
     }
 }
@@ -70,11 +70,11 @@ impl SpeedLimit {
 #[derive(Default, Copy, Clone, PartialEq)]
 pub enum SignalAspect {
     /// Signal does not restrict the train's speed
-    #[default]
     Unrestricting,
     /// Signal restricts the train's speed to the allowed value
     Restricting,
     /// Signal forbids the train from moving past it
+    #[default]
     Forbidding,
 }
 
@@ -91,6 +91,11 @@ pub struct SpeedControl {
     pub aspect: SignalAspect,
     pub passing_kmh: SpeedLimit,
     pub approaching_kmh: SpeedLimit,
+}
+
+pub struct Speeds {
+    pub passing_kmh: f64,
+    pub approaching_kmh: f64,
 }
 
 impl Default for SpeedControl {
@@ -117,6 +122,13 @@ impl SpeedControl {
                 passing_kmh: SpeedLimit::Restricted(0.0),
                 approaching_kmh: SpeedLimit::Restricted(40.0),
             },
+        }
+    }
+
+    pub fn apply_limit(&self, limit_kmh: f64) -> Speeds {
+        Speeds {
+            passing_kmh: self.passing_kmh.apply_limit(limit_kmh),
+            approaching_kmh: self.approaching_kmh.apply_limit(limit_kmh),
         }
     }
 }

@@ -22,6 +22,7 @@ struct LampBundle {
 impl LampBundle {
     fn new(lamp: Lamp, image: Handle<Image>) -> Self {
         let transform = Transform::from_translation(lamp.position.extend(1.0));
+        let transform = transform.with_rotation(Quat::from_rotation_z(lamp.rotation.to_radians()));
         let sprite_size = Some(lamp.size);
         Self {
             lamp,
@@ -46,6 +47,7 @@ pub struct Lamp {
     pub id: LampId,
     position: Vec2,
     size: Vec2,
+    rotation: f32,
 }
 
 impl Lamp {
@@ -71,7 +73,8 @@ impl From<&LampData> for Lamp {
         Self {
             id: lamp.id,
             position: vec2(lamp.x, -lamp.y),
-            size: vec2(lamp.width, lamp.height),
+            size: vec2(lamp.width, DEFAULT_LAMP_HEIGHT),
+            rotation: lamp.rotation,
         }
     }
 }

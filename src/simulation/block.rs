@@ -46,7 +46,7 @@ impl BlockTracker {
     /// Records block as freed by the train id, returns true if the block is now free
     fn set_freed(&mut self, block_id: BlockId, train_id: TrainId) -> bool {
         self.trains.get_mut(&train_id).map(|v| v.remove(&block_id));
-        self.blocks.get_mut(&block_id).map_or(false, |v| {
+        self.blocks.get_mut(&block_id).map_or(true, |v| {
             v.retain(|&x| x != train_id);
             v.is_empty()
         })
@@ -130,8 +130,11 @@ impl BlockMap {
                 SignalUpdateState::BlockChange(block_update) => match block_update {
                     BlockUpdateState::Occupied => SignalAspect::Forbidding,
                     BlockUpdateState::Freed => {
-                        let (next, _) = self.lookup_signal_forward(&signal.position, signal.direction);
-                        next.speed_ctrl.aspect.chain()
+                        if let Some((next, _)) = self.lookup_signal_forward(&signal.position, signal.direction) {
+                            next.speed_ctrl.aspect.chain()
+                        } else {
+                            SignalAspect::Forbidding
+                        }
                     }
                 },
                 SignalUpdateState::SignalPropagation(next_signal_aspect) => {
@@ -145,8 +148,10 @@ impl BlockMap {
 
             if aspect != signal.speed_ctrl.aspect {
                 lamp_updates.write(LampUpdate::from_signal_aspect(aspect, signal.lamp_id));
-                let (prev, _) = self.lookup_signal(&signal.position, signal.direction.reverse(), signal.direction);
-                queue.push_back(SignalUpdate::new(prev.id, SignalUpdateState::SignalPropagation(aspect)));
+                let prev = self.lookup_signal(&signal.position, signal.direction.reverse(), signal.direction);
+                if let Some((prev, _)) = prev {
+                    queue.push_back(SignalUpdate::new(prev.id, SignalUpdateState::SignalPropagation(aspect)));
+                }
 
                 let signal = self.signals.get_mut(update.signal_id).expect("invalid signal ID");
                 signal.change_aspect(aspect);
@@ -154,12 +159,8 @@ impl BlockMap {
         }
     }
 
-    fn init_signal_lamps(&self, lamp_updates: &mut MessageWriter<LampUpdate>) {
-        lamp_updates.write_batch(
-            self.signals
-                .iter()
-                .map(|signal| LampUpdate::from_signal_aspect(signal.speed_ctrl.aspect, signal.lamp_id)),
-        );
+    fn init(&self, block_updates: &mut MessageWriter<BlockUpdate>) {
+        block_updates.write_batch(self.blocks.iter().map(|block| BlockUpdate::freed(block.id, 0)));
     }
 
     /// Given a block state update, returns an iterator of all signals that it affects
@@ -194,7 +195,7 @@ impl BlockMap {
 
     /// Tries to find a forward facing signal placed in the `direction` along the track,
     /// returning tuple of signal and distance to it
-    pub fn lookup_signal_forward(&self, start: &TrackPoint, direction: Direction) -> (&TrackSignal, f64) {
+    pub fn lookup_signal_forward(&self, start: &TrackPoint, direction: Direction) -> Option<(&TrackSignal, f64)> {
         self.lookup_signal(start, direction, direction)
     }
 
@@ -205,7 +206,7 @@ impl BlockMap {
         start: &TrackPoint,
         direction: Direction,
         signal_direction: Direction,
-    ) -> (&TrackSignal, f64) {
+    ) -> Option<(&TrackSignal, f64)> {
         let reversed = direction.reverse();
         let mut length = -self.get_available_length(start, reversed);
         for (idx, point) in self.walk(start, f64::INFINITY, direction).enumerate() {
@@ -213,12 +214,12 @@ impl BlockMap {
                 let diff = direction.apply_sign(signal.position.offset_m - start.offset_m);
                 if idx > 0 || diff > 0.0 {
                     length += self.get_available_length(&signal.position, reversed);
-                    return (signal, length);
+                    return Some((signal, length));
                 }
             }
             length += self.get_available_length(&point, reversed);
         }
-        unreachable!("The loop should always return")
+        None
     }
 
     pub fn walk(&self, start: &TrackPoint, length_m: f64, direction: Direction) -> TrackWalker<'_> {
@@ -251,7 +252,7 @@ impl BlockMap {
                 None,
             );
         }
-        unreachable!("Lamp ID {} not found", id)
+        ("Unused".to_string(), None)
     }
 
     pub fn from_level(level: &Level) -> Self {
@@ -349,12 +350,8 @@ impl Iterator for TrackWalker<'_> {
     type Item = TrackPoint;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.length_m <= 0.0 {
+        if self.length_m <= 0.0 || self.offset_m.is_nan() {
             return None;
-        }
-
-        if self.offset_m.is_nan() {
-            panic!("No further block length available. Still need {} m", self.length_m);
         }
 
         if self.length_m < self.block_available_m {
@@ -391,7 +388,7 @@ pub struct MapPlugin;
 
 impl Plugin for MapPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnExit(LoadingState::Loading), (setup, init_signal_lamps).chain())
+        app.add_systems(OnExit(LoadingState::Loading), (setup, init).chain())
             .add_systems(
                 Update,
                 (block_updates, signal_updates).run_if(in_state(LoadingState::Loaded)),
@@ -404,8 +401,8 @@ fn setup(handles: Res<AssetHandles>, levels: Res<Assets<Level>>, mut commands: C
     commands.insert_resource(BlockMap::from_level(level));
 }
 
-fn init_signal_lamps(block_map: Res<BlockMap>, mut lamp_updates: MessageWriter<LampUpdate>) {
-    block_map.init_signal_lamps(&mut lamp_updates);
+fn init(block_map: Res<BlockMap>, mut block_updates: MessageWriter<BlockUpdate>) {
+    block_map.init(&mut block_updates);
 }
 
 fn block_updates(
@@ -553,26 +550,30 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "No further block length available. Still need 1850 m")]
-    fn walk_track_even_panic() {
+    fn walk_track_over_end_even() {
         let map = build_track();
         let point = TrackPoint::new(3, 850.0);
-        map.walk(&point, 2500.0, Direction::Even).collect_vec();
+        let visited: Vec<_> = map.walk(&point, 2500.0, Direction::Even).collect_vec();
+        assert_eq!(visited.len(), 1);
+        assert_eq!(visited[0].block_id, 3);
+        assert_eq!(visited[0].offset_m, 1500.0);
     }
 
     #[test]
-    #[should_panic(expected = "No further block length available. Still need 2350 m")]
-    fn walk_track_odd_panic() {
+    fn walk_track_over_end_odd() {
         let map = build_track();
         let point = TrackPoint::new(1, 150.0);
-        map.walk(&point, 2500.0, Direction::Odd).collect_vec();
+        let visited: Vec<_> = map.walk(&point, 2500.0, Direction::Odd).collect_vec();
+        assert_eq!(visited.len(), 1);
+        assert_eq!(visited[0].block_id, 1);
+        assert_eq!(visited[0].offset_m, 0.0);
     }
 
     #[test]
     fn find_signal_even() {
         let map = build_track();
         let point = TrackPoint::new(1, 200.0);
-        let (signal, distance) = map.lookup_signal_forward(&point, Direction::Even);
+        let (signal, distance) = map.lookup_signal_forward(&point, Direction::Even).unwrap();
         assert_eq!(signal.id, 1);
         assert_eq!(signal.position.block_id, 3);
         assert_eq!(distance, 2700.0);
@@ -582,26 +583,24 @@ mod tests {
     fn find_signal_odd() {
         let map = build_track();
         let point = TrackPoint::new(3, 1100.0);
-        let (signal, distance) = map.lookup_signal_forward(&point, Direction::Odd);
+        let (signal, distance) = map.lookup_signal_forward(&point, Direction::Odd).unwrap();
         assert_eq!(signal.id, 2);
         assert_eq!(signal.position.block_id, 1);
         assert_eq!(distance, 2350.0);
     }
 
     #[test]
-    #[should_panic(expected = "No further block length available. Still need inf m")]
     fn find_signal_even_same_block_behind() {
         let map = build_track();
         let point = TrackPoint::new(3, 1450.0);
-        map.lookup_signal_forward(&point, Direction::Even);
+        assert!(map.lookup_signal_forward(&point, Direction::Even).is_none());
     }
 
     #[test]
-    #[should_panic(expected = "No further block length available. Still need inf m")]
     fn find_signal_odd_same_block_behind() {
         let map = build_track();
         let point = TrackPoint::new(1, 200.0);
-        map.lookup_signal_forward(&point, Direction::Odd);
+        assert!(map.lookup_signal_forward(&point, Direction::Odd).is_none());
     }
 
     #[test]

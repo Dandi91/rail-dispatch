@@ -64,7 +64,25 @@ impl From<HexColor> for Color {
     }
 }
 
-#[allow(dead_code)]
+pub trait SpeedConv {
+    fn value(&self) -> f64;
+
+    fn kmh(&self) -> f64 {
+        self.value() * 3.6
+    }
+
+    fn mps(&self) -> f64 {
+        self.value() / 3.6
+    }
+}
+
+impl SpeedConv for f64 {
+    fn value(&self) -> f64 {
+        *self
+    }
+}
+
+#[cfg(test)]
 pub fn wrap<T: PartialOrd>(value: T, low: T, high: T) -> T {
     if value > high {
         return low;
