@@ -45,7 +45,7 @@ impl RailVehicle {
             mass_kg,
             length_m,
             cargo_mass_kg,
-            max_braking_force_n: 10_000.0,
+            max_braking_force_n: 12_000.0,
             power_w: 0.0,
             max_tractive_effort_n: 0.0,
         }
