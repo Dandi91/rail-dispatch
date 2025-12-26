@@ -70,7 +70,6 @@ pub enum LoadingState {
 pub struct AssetHandles {
     pub level: Handle<Level>,
     pub board: Handle<Image>,
-    pub lamp: Handle<Image>,
 }
 
 pub struct AssetLoadingPlugin;
@@ -88,7 +87,6 @@ fn setup_assets(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.insert_resource(AssetHandles {
         level: asset_server.load_acquire("level.toml", guard.clone()),
         board: asset_server.load_acquire("board.png", guard.clone()),
-        lamp: asset_server.load_acquire("lamp.png", guard.clone()),
     });
 
     let future = barrier.wait_async();

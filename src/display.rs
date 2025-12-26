@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use bevy::sprite::Anchor;
 use std::collections::HashMap;
 
-pub const DEFAULT_LAMP_HEIGHT: f32 = 5.0;
+pub const DEFAULT_LAMP_HEIGHT: f32 = 7.0;
 const LAMP_COLOR_GRAY: Color = Color::srgba_u8(0x55, 0x55, 0x55, 0xFF);
 const LAMP_COLOR_YELLOW: Color = Color::srgba_u8(0xFF, 0xFF, 0x40, 0xFF);
 const LAMP_COLOR_RED: Color = Color::srgba_u8(0xFF, 0x20, 0x20, 0xFF);
@@ -19,24 +19,21 @@ struct LampBundle {
     sprite: Sprite,
 }
 
-impl LampBundle {
-    fn new(lamp: Lamp, image: Handle<Image>) -> Self {
-        let transform = Transform::from_translation(lamp.position.extend(1.0));
-        let transform = transform.with_rotation(Quat::from_rotation_z(lamp.rotation.to_radians()));
-        let sprite_size = Some(lamp.size);
+impl From<&LampData> for LampBundle {
+    fn from(value: &LampData) -> Self {
+        Self::from(Lamp::from(value))
+    }
+}
+
+impl From<Lamp> for LampBundle {
+    fn from(lamp: Lamp) -> Self {
+        let transform = Transform::from_translation(lamp.position.extend(-1.0))
+            .with_rotation(Quat::from_rotation_z(lamp.rotation.to_radians()));
+        let sprite_size = lamp.size;
         Self {
             lamp,
             transform,
-            sprite: Sprite {
-                image,
-                color: LAMP_COLOR_GRAY,
-                custom_size: sprite_size,
-                image_mode: SpriteImageMode::Sliced(TextureSlicer {
-                    border: BorderRect::axes(2.0, 2.0),
-                    ..default()
-                }),
-                ..default()
-            },
+            sprite: Sprite::from_color(LAMP_COLOR_GRAY, sprite_size),
         }
     }
 }
@@ -127,8 +124,7 @@ fn setup(
 
     commands.spawn(DisplayBoardBundle::new(handles.board.clone()));
     for lamp in &level.lamps {
-        let bundle = LampBundle::new(lamp.into(), handles.lamp.clone());
-        let entity = commands.spawn(bundle).id();
+        let entity = commands.spawn(LampBundle::from(lamp)).id();
         mapper.insert(lamp.id, entity);
     }
 }
