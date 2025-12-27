@@ -117,8 +117,8 @@ fn setup(
     mut mapper: ResMut<LampMapper>,
     mut commands: Commands,
 ) {
-    let level = levels.get(&handles.level).unwrap();
-    let board_size = images.get(&handles.board).unwrap().size_f32();
+    let level = levels.get(&handles.level).expect("assets had been loaded");
+    let board_size = images.get(&handles.board).expect("assets had been loaded").size_f32();
     *clear_color = ClearColor(level.background.into());
     camera_transform.translation = (board_size * Anchor::BOTTOM_RIGHT.as_vec()).extend(0.0);
 
@@ -136,7 +136,7 @@ fn lamp_updates(
 ) {
     for update in lamp_updates.read() {
         if let Some(&entity) = lamp_mapper.get(&update.lamp_id) {
-            let (mut sprite, lamp) = query.get_mut(entity).unwrap();
+            let (mut sprite, lamp) = query.get_mut(entity).expect("invalid lamp entity");
             sprite.color = lamp.get_color(update.state);
         }
     }

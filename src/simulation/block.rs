@@ -110,7 +110,7 @@ impl BlockMap {
             if !changed {
                 return;
             }
-            let block = self.blocks.get(update.block_id).unwrap();
+            let block = self.blocks.get(update.block_id).expect("invalid block ID");
             lamp_updates.write(LampUpdate::from_block_state(update.state, block.lamp_id));
             signal_updates.write_batch(
                 self.find_affected_signals(block, update.state)
@@ -226,7 +226,7 @@ impl BlockMap {
     }
 
     pub fn walk(&self, start: &TrackPoint, length_m: f64, direction: Direction) -> TrackWalker<'_> {
-        let block = self.blocks.get(start.block_id).unwrap();
+        let block = self.blocks.get(start.block_id).expect("invalid block ID");
         TrackWalker {
             block_map: self,
             current_block_id: start.block_id,
@@ -400,7 +400,7 @@ impl Plugin for MapPlugin {
 }
 
 fn setup(handles: Res<AssetHandles>, levels: Res<Assets<Level>>, mut commands: Commands) {
-    let level = levels.get(&handles.level).unwrap();
+    let level = levels.get(&handles.level).expect("level had been loaded");
     commands.insert_resource(BlockMap::from_level(level));
 }
 

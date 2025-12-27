@@ -347,7 +347,7 @@ fn spawn_train(train_id: TrainId, block_map: &BlockMap, block_updates: &mut Mess
         vehicles: cars,
         top_speed_kmh: 80.0,
         front_position: spawn_pos,
-        back_position: trace.last().cloned().unwrap(),
+        back_position: trace.last().cloned().expect("at least one track point"),
         ..default()
     }
 }

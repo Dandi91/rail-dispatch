@@ -89,8 +89,8 @@ fn on_over_lamp(
         let (lamp_str, train_ids) = block_map.get_lamp_info(lamp.id);
         *writer.text(children[1], 0) = lamp_str;
         if let Some(train_ids) = train_ids {
-            let first = *train_ids.first().unwrap();
-            let train = trains.iter().find(|t| t.id == first).unwrap();
+            let first = *train_ids.first().expect("at least one train in block");
+            let train = trains.iter().find(|t| t.id == first).expect("invalid train ID");
             *writer.text(children[2], 0) = format!(
                 "Train {}, speed {:.0} km/h, target speed {:.0} km/h",
                 train.number,
