@@ -5,6 +5,7 @@ use crate::level::{BlockData, ConnectionData, Level, SignalData};
 use crate::simulation::messages::{BlockUpdate, BlockUpdateState, LampUpdate, SignalUpdate, SignalUpdateState};
 use crate::simulation::signal::{SignalAspect, SignalMap, TrackSignal};
 use crate::simulation::sparse_vec::{Chunkable, SparseVec};
+use crate::simulation::switch::Switch;
 use arrayvec::ArrayVec;
 use bevy::prelude::*;
 use itertools::Itertools;
@@ -66,8 +67,9 @@ impl BlockTracker {
 #[derive(Default, Resource)]
 pub struct BlockMap {
     blocks: SparseVec<Block>,
-    signals: SignalMap,
     tracker: BlockTracker,
+    signals: SignalMap,
+    switches: SparseVec<Switch>,
 }
 
 impl BlockMap {
@@ -165,7 +167,7 @@ impl BlockMap {
         block_updates.write_batch(self.blocks.iter().map(|block| BlockUpdate::freed(block.id, 0)));
     }
 
-    /// Given a block state update, returns an iterator of all signals that it affects
+    /// Given a block state update, returns a collection of all signals that it affects
     /// (at most 2 signals per block, one in each direction).
     fn find_affected_signals(&self, block: &Block, state: BlockUpdateState) -> ArrayVec<&TrackSignal, 2> {
         let point = block.middle();

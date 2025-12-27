@@ -11,15 +11,15 @@ struct TrainControls {
     brake_level: f64,
 }
 
-impl TrainControls {
-    fn as_percentage(&self) -> i32 {
-        if self.throttle != 0.0 {
-            (self.throttle * 100.0) as i32
-        } else {
-            -(self.brake_level * 100.0) as i32
-        }
-    }
-}
+// impl TrainControls {
+//     fn as_percentage(&self) -> i32 {
+//         if self.throttle != 0.0 {
+//             (self.throttle * 100.0) as i32
+//         } else {
+//             -(self.brake_level * 100.0) as i32
+//         }
+//     }
+// }
 
 #[derive(Copy, Clone)]
 enum VehicleType {
