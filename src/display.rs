@@ -103,9 +103,14 @@ pub struct DisplayPlugin;
 impl Plugin for DisplayPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LampMapper>()
+            .add_systems(Startup, startup)
             .add_systems(OnExit(LoadingState::Loading), setup)
             .add_systems(Update, lamp_updates);
     }
+}
+
+fn startup(mut commands: Commands) {
+    commands.spawn(Camera2d);
 }
 
 fn setup(

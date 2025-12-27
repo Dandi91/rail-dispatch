@@ -12,7 +12,6 @@ use assets::AssetLoadingPlugin;
 use bevy::asset::AssetPlugin;
 use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin, FrameTimeGraphConfig};
 use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
 use debug_overlay::DebugOverlayPlugin;
 use display::DisplayPlugin;
 use level::LevelPlugin;
@@ -22,10 +21,18 @@ use time_controls::TimeControlsPlugin;
 fn main() {
     App::new()
         .add_plugins((
-            DefaultPlugins.set(AssetPlugin {
-                file_path: "resources".to_string(),
-                ..default()
-            }),
+            DefaultPlugins
+                .set(AssetPlugin {
+                    file_path: "resources".to_string(),
+                    ..default()
+                })
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "Rail Dispatch".to_string(),
+                        ..default()
+                    }),
+                    ..default()
+                }),
             FpsOverlayPlugin {
                 config: FpsOverlayConfig {
                     text_config: TextFont::from_font_size(20.0),
@@ -49,11 +56,5 @@ fn main() {
             TrainPlugin,
             MapPlugin,
         ))
-        .add_systems(Startup, setup)
         .run();
-}
-
-fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWindow>>) {
-    window.title = "Rail Dispatch".to_string();
-    commands.spawn(Camera2d);
 }
