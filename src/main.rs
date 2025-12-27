@@ -12,6 +12,7 @@ use assets::AssetLoadingPlugin;
 use bevy::asset::AssetPlugin;
 use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin, FrameTimeGraphConfig};
 use bevy::prelude::*;
+use bevy::window::ExitCondition;
 use debug_overlay::DebugOverlayPlugin;
 use display::DisplayPlugin;
 use level::LevelPlugin;
@@ -31,6 +32,7 @@ fn main() {
                         title: "Rail Dispatch".to_string(),
                         ..default()
                     }),
+                    exit_condition: ExitCondition::OnPrimaryClosed,
                     ..default()
                 }),
             FpsOverlayPlugin {
