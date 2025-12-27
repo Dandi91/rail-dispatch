@@ -58,6 +58,7 @@ toml = "0.9.8"
 event-listener = "5.4.1"
 futures-lite = "2.6.1"
 thiserror = "2.0.17"
+arrayvec = "0.7.6"
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]

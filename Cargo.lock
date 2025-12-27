@@ -3413,6 +3413,7 @@ checksum = "019b4b213425016d7d84a153c4c73afb0946fbb4840e4eece7ba8848b9d6da22"
 name = "rail-dispatch"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
  "bevy",
  "chrono",
  "event-listener",

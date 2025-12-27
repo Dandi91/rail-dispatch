@@ -5,6 +5,7 @@ use crate::level::{BlockData, ConnectionData, Level, SignalData};
 use crate::simulation::messages::{BlockUpdate, BlockUpdateState, LampUpdate, SignalUpdate, SignalUpdateState};
 use crate::simulation::signal::{SignalAspect, SignalMap, TrackSignal};
 use crate::simulation::sparse_vec::{Chunkable, SparseVec};
+use arrayvec::ArrayVec;
 use bevy::prelude::*;
 use itertools::Itertools;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -113,6 +114,7 @@ impl BlockMap {
             lamp_updates.write(LampUpdate::from_block_state(update.state, block.lamp_id));
             signal_updates.write_batch(
                 self.find_affected_signals(block, update.state)
+                    .iter()
                     .map(|signal| SignalUpdate::from_block_change(signal.id, update.state)),
             );
         }
@@ -165,17 +167,18 @@ impl BlockMap {
 
     /// Given a block state update, returns an iterator of all signals that it affects
     /// (at most 2 signals per block, one in each direction).
-    fn find_affected_signals(&self, block: &Block, state: BlockUpdateState) -> impl Iterator<Item = &TrackSignal> {
+    fn find_affected_signals(&self, block: &Block, state: BlockUpdateState) -> ArrayVec<&TrackSignal, 2> {
         let point = block.middle();
         [Direction::Even, Direction::Odd]
             .iter()
-            .map(move |&direction| {
+            .map(|&direction| {
                 self.walk(&point, f64::INFINITY, direction)
                     .skip(1)
                     .find_map(|p| self.signals.find_signal(p.block_id, direction.reverse()))
             })
             .flatten()
-            .filter(move |signal| matches!(state, BlockUpdateState::Occupied) || self.is_signal_free(signal))
+            .filter(|signal| matches!(state, BlockUpdateState::Occupied) || self.is_signal_free(signal))
+            .collect()
     }
 
     /// Checks if the blocks after the `signal` are free up until the next signal in the same direction
@@ -607,9 +610,7 @@ mod tests {
     fn affected_signals_busy() {
         let map = build_track_extended();
         let block = map.blocks.get(2).unwrap();
-        let mut result = map
-            .find_affected_signals(block, BlockUpdateState::Occupied)
-            .collect_vec();
+        let mut result = map.find_affected_signals(block, BlockUpdateState::Occupied);
         result.sort_by_key(|&signal| signal.position.block_id);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].position.block_id, 1);
@@ -622,7 +623,7 @@ mod tests {
     fn affected_signals_free() {
         let map = build_track_extended();
         let block = map.blocks.get(2).unwrap();
-        let mut result = map.find_affected_signals(block, BlockUpdateState::Freed).collect_vec();
+        let mut result = map.find_affected_signals(block, BlockUpdateState::Freed);
         result.sort_by_key(|&signal| signal.position.block_id);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].position.block_id, 1);
