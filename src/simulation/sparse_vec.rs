@@ -1,12 +1,11 @@
 use itertools::Itertools;
 
-#[derive(Debug)]
+#[cfg_attr(test, derive(Debug))]
 struct Chunk {
     start_id: u32,
     start_index: usize,
 }
 
-#[derive(Default)]
 pub struct SparseVec<T: Chunkable> {
     chunks: Vec<Chunk>,
     items: Vec<T>,
@@ -53,6 +52,15 @@ impl<T: Chunkable> SparseVec<T> {
 
     pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, T> {
         self.items.iter_mut()
+    }
+}
+
+impl<T: Chunkable> Default for SparseVec<T> {
+    fn default() -> Self {
+        Self {
+            chunks: Vec::new(),
+            items: Vec::new(),
+        }
     }
 }
 
