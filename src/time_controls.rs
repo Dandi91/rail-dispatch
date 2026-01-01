@@ -103,15 +103,15 @@ fn time_controls(
     mut commands: Commands,
     mut time_controls: ResMut<TimeControls>,
 ) {
-    if keyboard_input.just_pressed(KeyCode::ArrowUp) {
-        if let Some(time_scale) = time_controls.inc() {
-            commands.trigger(TimeScaleChanged { time_scale });
-        }
+    if keyboard_input.just_pressed(KeyCode::ArrowUp)
+        && let Some(time_scale) = time_controls.inc()
+    {
+        commands.trigger(TimeScaleChanged { time_scale });
     }
-    if keyboard_input.just_pressed(KeyCode::ArrowDown) {
-        if let Some(time_scale) = time_controls.dec() {
-            commands.trigger(TimeScaleChanged { time_scale });
-        }
+    if keyboard_input.just_pressed(KeyCode::ArrowDown)
+        && let Some(time_scale) = time_controls.dec()
+    {
+        commands.trigger(TimeScaleChanged { time_scale });
     }
     if keyboard_input.just_pressed(KeyCode::KeyP) {
         time_controls.paused = !time_controls.paused;

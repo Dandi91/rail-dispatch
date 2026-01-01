@@ -298,12 +298,12 @@ fn keyboard_handling(
         info!("Train {} spawned with ID {}", train.number, train.id);
         commands.spawn(train);
     }
-    if keyboard_input.just_pressed(KeyCode::KeyH) {
-        if let Some((entity, train)) = query.iter().min_by_key(|(_, t)| t.id) {
-            info!("Train {} despawned with ID {}", train.number, train.id);
-            block_map.despawn_train(train.id, &mut block_updates);
-            commands.entity(entity).despawn();
-        }
+    if keyboard_input.just_pressed(KeyCode::KeyH)
+        && let Some((entity, train)) = query.iter().min_by_key(|(_, t)| t.id)
+    {
+        info!("Train {} despawned with ID {}", train.number, train.id);
+        block_map.despawn_train(train.id, &mut block_updates);
+        commands.entity(entity).despawn();
     }
 }
 

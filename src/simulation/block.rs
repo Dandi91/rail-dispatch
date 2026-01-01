@@ -48,7 +48,7 @@ impl BlockTracker {
     /// Records block as freed by the train id, returns true if the block is now free
     fn set_freed(&mut self, block_id: BlockId, train_id: TrainId) -> bool {
         self.trains.get_mut(&train_id).map(|v| v.remove(&block_id));
-        self.blocks.get_mut(&block_id).map_or(true, |v| {
+        self.blocks.get_mut(&block_id).is_none_or(|v| {
             v.retain(|&x| x != train_id);
             v.is_empty()
         })
@@ -173,12 +173,11 @@ impl BlockMap {
         let point = block.middle();
         [Direction::Even, Direction::Odd]
             .iter()
-            .map(|&direction| {
+            .filter_map(|&direction| {
                 self.walk(&point, f64::INFINITY, direction)
                     .skip(1)
                     .find_map(|p| self.signals.find_signal(p.block_id, direction.reverse()))
             })
-            .flatten()
             .filter(|signal| matches!(state, BlockUpdateState::Occupied) || self.is_signal_free(signal))
             .collect()
     }
