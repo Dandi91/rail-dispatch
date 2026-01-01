@@ -1,20 +1,23 @@
-use crate::common::{BlockId, SwitchId};
+use crate::common::{BlockId, Direction, SwitchId};
+use crate::level::SwitchData;
 use crate::simulation::sparse_vec::Chunkable;
 
 pub struct Switch {
-    id: SwitchId,
-    base: BlockId,
-    straight: BlockId,
-    side: BlockId,
+    pub id: SwitchId,
+    pub base: BlockId,
+    pub straight: BlockId,
+    pub side: BlockId,
+    pub direction: Direction,
 }
 
-impl Switch {
-    pub fn new(id: SwitchId, base: BlockId, straight: BlockId, side: BlockId) -> Self {
+impl From<&SwitchData> for Switch {
+    fn from(data: &SwitchData) -> Self {
         Self {
-            id,
-            base,
-            straight,
-            side,
+            id: data.id,
+            base: data.base,
+            straight: data.straight,
+            side: data.side,
+            direction: data.direction,
         }
     }
 }

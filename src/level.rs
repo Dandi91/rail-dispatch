@@ -1,4 +1,4 @@
-use crate::common::{HexColor, SignalId};
+use crate::common::{HexColor, SignalId, SwitchId};
 use crate::{common::BlockId, common::Direction, common::LampId};
 use bevy::{asset::AssetLoader, asset::LoadContext, asset::io::Reader, prelude::*};
 use futures_lite::AsyncReadExt;
@@ -10,6 +10,7 @@ pub struct Level {
     pub lamps: Vec<LampData>,
     pub blocks: Vec<BlockData>,
     pub connections: Vec<ConnectionData>,
+    pub switches: Vec<SwitchData>,
     pub signals: Vec<SignalData>,
     pub background: HexColor,
 }
@@ -35,6 +36,15 @@ pub struct BlockData {
 pub struct ConnectionData {
     pub start: BlockId,
     pub end: BlockId,
+}
+
+#[derive(Deserialize, Reflect)]
+pub struct SwitchData {
+    pub id: SwitchId,
+    pub base: BlockId,
+    pub straight: BlockId,
+    pub side: BlockId,
+    pub direction: Direction,
 }
 
 #[derive(Deserialize, Reflect)]

@@ -1,4 +1,4 @@
-use crate::common::{BlockId, LampId, SignalId, TrainId};
+use crate::common::{BlockId, LampId, SignalId, SwitchId, TrainId};
 use crate::simulation::signal::SignalAspect;
 use bevy::prelude::*;
 use std::ops::Not;
@@ -115,12 +115,24 @@ impl SignalUpdate {
     }
 }
 
+#[derive(Message)]
+pub struct SwitchUpdate {
+    pub switch_id: SwitchId,
+}
+
+impl SwitchUpdate {
+    pub fn new(switch_id: SwitchId) -> Self {
+        Self { switch_id }
+    }
+}
+
 pub struct MessagingPlugin;
 
 impl Plugin for MessagingPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<BlockUpdate>()
             .add_message::<LampUpdate>()
-            .add_message::<SignalUpdate>();
+            .add_message::<SignalUpdate>()
+            .add_message::<SwitchUpdate>();
     }
 }

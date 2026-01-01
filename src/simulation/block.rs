@@ -1,7 +1,7 @@
 use crate::assets::{AssetHandles, LoadingState};
 use crate::common::LampId;
 use crate::common::{BlockId, Direction, TrainId};
-use crate::level::{BlockData, ConnectionData, Level, SignalData};
+use crate::level::{BlockData, Level};
 use crate::simulation::messages::{BlockUpdate, BlockUpdateState, LampUpdate, SignalUpdate, SignalUpdateState};
 use crate::simulation::signal::{SignalAspect, SignalMap, TrackSignal};
 use crate::simulation::sparse_vec::{Chunkable, SparseVec};
@@ -163,7 +163,21 @@ impl BlockMap {
         }
     }
 
-    fn init(&self, block_updates: &mut MessageWriter<BlockUpdate>) {
+    fn init(&mut self, block_updates: &mut MessageWriter<BlockUpdate>) {
+        self.switches.iter().for_each(|switch| match switch.direction {
+            Direction::Even => {
+                let base = self.blocks.get_mut(switch.base).expect("invalid block ID");
+                base.next = Some(switch.straight);
+                let side = self.blocks.get_mut(switch.straight).expect("invalid block ID");
+                side.prev = Some(switch.base);
+            }
+            Direction::Odd => {
+                let base = self.blocks.get_mut(switch.base).expect("invalid block ID");
+                base.prev = Some(switch.straight);
+                let side = self.blocks.get_mut(switch.straight).expect("invalid block ID");
+                side.next = Some(switch.base);
+            }
+        });
         block_updates.write_batch(self.blocks.iter().map(|block| BlockUpdate::freed(block.id, 0)));
     }
 
@@ -260,19 +274,11 @@ impl BlockMap {
     }
 
     pub fn from_level(level: &Level) -> Self {
-        Self::from_iterable(&level.blocks, &level.signals, &level.connections)
-    }
+        let mut blocks: SparseVec<Block> = level.blocks.iter().map_into().collect();
+        let signals: SignalMap = level.signals.iter().map_into().collect();
+        let switches: SparseVec<Switch> = level.switches.iter().map_into().collect();
 
-    pub fn from_iterable<'a, I, J, K>(block_data: I, signal_data: J, connection_data: K) -> Self
-    where
-        I: IntoIterator<Item = &'a BlockData>,
-        J: IntoIterator<Item = &'a SignalData>,
-        K: IntoIterator<Item = &'a ConnectionData>,
-    {
-        let mut blocks: SparseVec<Block> = block_data.into_iter().map_into().collect();
-        let signals: SignalMap = signal_data.into_iter().map_into().collect();
-
-        for conn in connection_data {
+        for conn in &level.connections {
             let start = blocks.get_mut(conn.start).expect("start block not found");
             start.next = Some(conn.end);
             let end = blocks.get_mut(conn.end).expect("end block not found");
@@ -282,6 +288,7 @@ impl BlockMap {
         BlockMap {
             blocks,
             signals,
+            switches,
             ..Default::default()
         }
     }
@@ -405,7 +412,7 @@ fn setup(handles: Res<AssetHandles>, levels: Res<Assets<Level>>, mut commands: C
     commands.insert_resource(BlockMap::from_level(level));
 }
 
-fn init(block_map: Res<BlockMap>, mut block_updates: MessageWriter<BlockUpdate>) {
+fn init(mut block_map: ResMut<BlockMap>, mut block_updates: MessageWriter<BlockUpdate>) {
     block_map.init(&mut block_updates);
 }
 

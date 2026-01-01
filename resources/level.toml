@@ -55,13 +55,11 @@ blocks = [
 ]
 
 connections = [
-    # start block id, end block id, [side block id] (for switches)
+    # start block id, end block id (in the even direction)
     [1, 2],
     [2, 3],
     [3, 4],
     [4, 5],
-
-    [5, 6, 20],
 
     [6, 7],
     [7, 8],
@@ -74,8 +72,13 @@ connections = [
     [23, 24],
 ]
 
+switches = [
+    # id, base block id, straight block id, side block id, split direction (1 even, -1 odd)
+    [1, 5, 6, 20, 1],
+]
+
 signals = [
-    # id, lamp_id, block_id, offset_m, name, dir (1 even, -1 odd)
+    # id, lamp_id, block_id, offset_m, name, direction (1 even, -1 odd)
     [30, 0, 1, 5, "EndL", -1],
 
     [1, 101, 1, 1380, "6", 1],   # main approach left
