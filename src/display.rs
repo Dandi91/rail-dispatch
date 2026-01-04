@@ -1,5 +1,6 @@
 use crate::assets::{AssetHandles, LoadingState};
 use crate::common::LampId;
+use crate::debug_overlay::UpdateObservers;
 use crate::level::{LampData, Level};
 use crate::simulation::messages::{LampUpdate, LampUpdateState};
 use bevy::prelude::*;
@@ -132,6 +133,8 @@ fn setup(
         let entity = commands.spawn(LampBundle::from(lamp)).id();
         mapper.insert(lamp.id, entity);
     }
+
+    commands.trigger(UpdateObservers);
 }
 
 fn lamp_updates(
