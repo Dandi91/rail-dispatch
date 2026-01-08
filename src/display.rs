@@ -159,6 +159,7 @@ impl Plugin for DisplayPlugin {
 
 fn startup(mut commands: Commands) {
     commands.spawn(Camera2d);
+    commands.add_observer(on_signal_action);
 }
 
 fn setup(
@@ -183,6 +184,14 @@ fn setup(
 
     SignalMenuItem::register(&mut commands, mapper.values().cloned());
     commands.trigger(UpdateDebugObservers);
+}
+
+fn on_signal_action(event: On<SignalMenuEvent>) {
+    info!(
+        "On click menu item '{}' {:?}",
+        event.action.get_label().into(),
+        event.entity,
+    );
 }
 
 fn lamp_updates(

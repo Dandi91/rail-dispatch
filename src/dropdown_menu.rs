@@ -57,7 +57,7 @@ pub trait MenuItem: Component + Sized {
 
     fn on_left_click(
         event: On<Pointer<Click>>,
-        items: Query<&Self>,
+        items: Populated<&Self>,
         mut menu: Single<(&mut Visibility, &mut ContextMenu)>,
         mut commands: Commands,
     ) {
@@ -67,14 +67,8 @@ pub trait MenuItem: Component + Sized {
 
         let (vis, context_menu) = menu.deref_mut();
         if let Ok(item) = items.get(event.entity) {
-            let action = item.get_action();
-            info!(
-                "On click menu item '{}' {:?}",
-                action.get_label().into(),
-                context_menu.target
-            );
             if let Some(target) = context_menu.target {
-                commands.trigger(action.create_entity_event(target));
+                commands.trigger(item.get_action().create_entity_event(target));
                 context_menu.target = None;
             }
         }
