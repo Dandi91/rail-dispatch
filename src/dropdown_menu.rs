@@ -23,51 +23,56 @@ pub trait DropDownMenu: Component + Sized {
         mut menu: Single<(Entity, &mut Visibility, &mut Node, &mut ContextMenu)>,
         mut commands: Commands,
     ) {
-        if event.button == PointerButton::Secondary {
-            let (entity, vis, node, context_menu) = menu.deref_mut();
-            commands.entity(*entity).clear_children().with_children(|p| {
-                for item in Self::list_available_items() {
-                    let label = Text::new(item.get_label());
-                    p.spawn((
-                        Node {
-                            padding: UiRect::all(px(4.0)),
-                            ..default()
-                        },
-                        item,
-                        Pickable::default(),
-                    ))
-                    .observe(on_menu_hover)
-                    .observe(on_menu_out)
-                    .with_children(|item| {
-                        item.spawn((label, TextFont::from_font_size(12.0)));
-                    });
-                }
-            });
-
-            **vis = Visibility::Visible;
-            node.left = px(event.pointer_location.position.x);
-            node.top = px(event.pointer_location.position.y);
-            context_menu.target = Some(event.entity);
+        if event.button != PointerButton::Secondary {
+            return;
         }
+
+        let (entity, vis, node, context_menu) = menu.deref_mut();
+        commands.entity(*entity).despawn_children().with_children(|p| {
+            for item in Self::list_available_items() {
+                let label = Text::new(item.get_label());
+                p.spawn((
+                    Node {
+                        padding: UiRect::all(px(4.0)),
+                        ..default()
+                    },
+                    item,
+                    Pickable::default(),
+                ))
+                .observe(on_menu_hover)
+                .observe(on_menu_out)
+                .with_children(|item| {
+                    item.spawn((label, TextFont::from_font_size(12.0), Pickable::IGNORE));
+                });
+            }
+        });
+
+        **vis = Visibility::Visible;
+        node.left = px(event.pointer_location.position.x);
+        node.top = px(event.pointer_location.position.y);
+        context_menu.target = Some(event.entity);
     }
 
     fn on_left_click(
-        event: On<Pointer<Click>>,
+        mut event: On<Pointer<Click>>,
         items: Populated<&Self>,
-        mut menu: Single<(&mut Visibility, &mut ContextMenu)>,
+        mut menu: Single<(Entity, &mut Visibility, &mut ContextMenu)>,
         mut commands: Commands,
     ) {
         if event.button != PointerButton::Primary {
             return;
         }
 
-        let (vis, context_menu) = menu.deref_mut();
+        let (entity, vis, context_menu) = menu.deref_mut();
         if let Ok(item) = items.get(event.entity) {
             if let Some(target) = context_menu.target {
                 commands.trigger(item.create_event(target));
+                event.propagate(false);
                 context_menu.target = None;
             }
         }
+
+        commands.entity(*entity).despawn_children();
         **vis = Visibility::Hidden;
     }
 
