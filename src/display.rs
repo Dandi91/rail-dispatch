@@ -1,6 +1,7 @@
 use crate::assets::{AssetHandles, LoadingState};
 use crate::common::LampId;
-use crate::debug_overlay::UpdateObservers;
+use crate::debug_overlay::UpdateDebugObservers;
+use crate::dropdown_menu::{MenuAction, MenuItem};
 use crate::level::{LampData, Level};
 use crate::simulation::messages::{LampUpdate, LampUpdateState};
 use bevy::prelude::*;
@@ -99,6 +100,52 @@ impl DisplayBoardBundle {
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum SignalMenuAction {
+    SpawnTrain,
+    ToggleSignal,
+    DebugInfo,
+}
+
+#[derive(EntityEvent)]
+pub struct SignalMenuEvent {
+    pub entity: Entity,
+    pub action: SignalMenuAction,
+}
+
+impl MenuAction for SignalMenuAction {
+    fn create_entity_event<'a>(&self, entity: Entity) -> impl EntityEvent<Trigger<'a>: Default> {
+        SignalMenuEvent { entity, action: *self }
+    }
+
+    fn get_label(&self) -> impl Into<String> {
+        match self {
+            SignalMenuAction::SpawnTrain => "Spawn Train",
+            SignalMenuAction::ToggleSignal => "Toggle Signal",
+            SignalMenuAction::DebugInfo => "Debug Info",
+        }
+    }
+}
+
+#[derive(Component)]
+struct SignalMenuItem(SignalMenuAction);
+
+impl MenuItem for SignalMenuItem {
+    type Action = SignalMenuAction;
+
+    fn get_action(&self) -> &Self::Action {
+        &self.0
+    }
+
+    fn list_available_items() -> impl IntoIterator<Item = Self> {
+        vec![
+            SignalMenuItem(SignalMenuAction::SpawnTrain),
+            SignalMenuItem(SignalMenuAction::ToggleSignal),
+            SignalMenuItem(SignalMenuAction::DebugInfo),
+        ]
+    }
+}
+
 pub struct DisplayPlugin;
 
 impl Plugin for DisplayPlugin {
@@ -134,7 +181,8 @@ fn setup(
         mapper.insert(lamp.id, entity);
     }
 
-    commands.trigger(UpdateObservers);
+    SignalMenuItem::register(&mut commands, mapper.values().cloned());
+    commands.trigger(UpdateDebugObservers);
 }
 
 fn lamp_updates(

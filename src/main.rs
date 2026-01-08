@@ -2,12 +2,11 @@ mod assets;
 mod common;
 mod debug_overlay;
 mod display;
+mod dropdown_menu;
 mod level;
 mod simulation;
 mod time_controls;
 
-use crate::simulation::block::MapPlugin;
-use crate::simulation::train::TrainPlugin;
 use assets::AssetLoadingPlugin;
 use bevy::asset::AssetPlugin;
 use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin, FrameTimeGraphConfig};
@@ -15,8 +14,11 @@ use bevy::prelude::*;
 use bevy::window::ExitCondition;
 use debug_overlay::DebugOverlayPlugin;
 use display::DisplayPlugin;
+use dropdown_menu::DropdownPlugin;
 use level::LevelPlugin;
+use simulation::block::MapPlugin;
 use simulation::messages::MessagingPlugin;
+use simulation::train::TrainPlugin;
 use time_controls::TimeControlsPlugin;
 
 fn main() {
@@ -50,6 +52,7 @@ fn main() {
         ))
         .add_plugins((
             DebugOverlayPlugin,
+            DropdownPlugin,
             LevelPlugin,
             AssetLoadingPlugin,
             TimeControlsPlugin,

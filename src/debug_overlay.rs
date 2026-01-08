@@ -1,39 +1,14 @@
 use crate::display::Lamp;
 use crate::simulation::block::BlockMap;
 use crate::simulation::train::Train;
-use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 use std::ops::DerefMut;
 
-const MENU_BACKGROUND_DEFAULT: BackgroundColor = BackgroundColor(Color::srgb(0.15, 0.15, 0.15));
-const MENU_BACKGROUND_HIGHLIGHT: BackgroundColor = BackgroundColor(Color::srgb(0.31, 0.31, 0.31));
-
 #[derive(Event)]
-pub struct UpdateObservers;
+pub struct UpdateDebugObservers;
 
 #[derive(Component)]
 struct DetailsInfo;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DebugMenuAction {
-    SpawnTrain,
-    ToggleSignal,
-    DebugInfo,
-}
-
-#[derive(EntityEvent)]
-pub struct DebugMenuEvent {
-    pub entity: Entity,
-    pub action: DebugMenuAction,
-}
-
-#[derive(Component)]
-struct DebugMenuItem(DebugMenuAction);
-
-#[derive(Component, Default)]
-struct ContextMenu {
-    target: Option<Entity>,
-}
 
 pub struct DebugOverlayPlugin;
 
@@ -60,21 +35,6 @@ fn setup(mut commands: Commands) {
         },
     ));
 
-    commands.spawn((
-        ContextMenu::default(),
-        Node {
-            position_type: PositionType::Absolute,
-            border: UiRect::all(px(1)),
-            flex_direction: FlexDirection::Column,
-            ..default()
-        },
-        MENU_BACKGROUND_DEFAULT,
-        BorderColor::all(Color::WHITE),
-        BorderRadius::all(px(3.0)),
-        GlobalZIndex(100),
-        Visibility::Hidden,
-    ));
-
     commands
         .spawn((
             DetailsInfo,
@@ -98,92 +58,17 @@ fn setup(mut commands: Commands) {
         });
 
     commands.add_observer(on_setup);
-    commands.add_observer(on_click_menu_item);
 }
 
-fn on_setup(_: On<UpdateObservers>, lamps: Query<Entity, With<Lamp>>, mut commands: Commands) {
+fn on_setup(_: On<UpdateDebugObservers>, lamps: Query<Entity, With<Lamp>>, mut commands: Commands) {
     let mut on_over = Observer::new(on_over_lamp);
     let mut on_out = Observer::new(on_out_lamp);
-    let mut on_click = Observer::new(on_click_lamp);
 
     on_over.watch_entities(lamps);
     on_out.watch_entities(lamps);
-    on_click.watch_entities(lamps);
 
     commands.spawn(on_over);
     commands.spawn(on_out);
-    commands.spawn(on_click);
-}
-
-fn on_click_lamp(
-    event: On<Pointer<Click>>,
-    mut menu: Single<(Entity, &mut Visibility, &mut Node, &mut ContextMenu)>,
-    mut commands: Commands,
-) {
-    if event.button == PointerButton::Secondary {
-        let (entity, vis, node, context_menu) = menu.deref_mut();
-        commands.entity(*entity).clear_children().with_children(|p| {
-            let items = [
-                ("Spawn Train", DebugMenuAction::SpawnTrain),
-                ("Toggle Signal", DebugMenuAction::ToggleSignal),
-                ("Debug Info", DebugMenuAction::DebugInfo),
-            ];
-
-            for (label, action) in items {
-                p.spawn((
-                    Node {
-                        padding: UiRect::all(px(4.0)),
-                        ..default()
-                    },
-                    DebugMenuItem(action),
-                    Pickable::default(),
-                ))
-                .observe(on_menu_hover)
-                .observe(on_menu_out)
-                .with_children(|item| {
-                    item.spawn((Text::new(label), TextFont::from_font_size(12.0)));
-                });
-            }
-        });
-
-        **vis = Visibility::Visible;
-        node.left = px(event.pointer_location.position.x);
-        node.top = px(event.pointer_location.position.y);
-        context_menu.target = Some(event.entity);
-    }
-}
-
-fn on_click_menu_item(
-    event: On<Pointer<Click>>,
-    items: Query<&DebugMenuItem>,
-    mut menu: Single<(&mut Visibility, &mut ContextMenu)>,
-    mut commands: Commands,
-) {
-    if event.button != PointerButton::Primary {
-        return;
-    }
-
-    let (vis, context_menu) = menu.deref_mut();
-    if let Ok(item) = items.get(event.entity) {
-        info!("On click menu item {:?} {:?}", item.0, context_menu.target);
-        if let Some(target) = context_menu.target {
-            info!("On click menu target {:?}", target);
-            commands.trigger(DebugMenuEvent {
-                action: item.0,
-                entity: target,
-            });
-            context_menu.target = None;
-        }
-    }
-    **vis = Visibility::Hidden;
-}
-
-fn on_menu_hover(event: On<Pointer<Over>>, mut commands: Commands) {
-    commands.entity(event.entity).insert(MENU_BACKGROUND_HIGHLIGHT);
-}
-
-fn on_menu_out(event: On<Pointer<Out>>, mut commands: Commands) {
-    commands.entity(event.entity).remove::<BackgroundColor>();
 }
 
 fn on_over_lamp(
