@@ -9,16 +9,12 @@ pub struct ContextMenu {
     target: Option<Entity>,
 }
 
-pub trait MenuAction {
-    fn create_entity_event<'a>(&self, entity: Entity) -> impl EntityEvent<Trigger<'a>: Default>;
+pub trait DropDownMenu: Component + Sized {
+    type Event<'a>: EntityEvent<Trigger<'a>: Default>;
+
+    fn create_event(&self, entity: Entity) -> Self::Event<'_>;
 
     fn get_label(&self) -> impl Into<String>;
-}
-
-pub trait MenuItem: Component + Sized {
-    type Action: MenuAction;
-
-    fn get_action(&self) -> &Self::Action;
 
     fn list_available_items() -> impl IntoIterator<Item = Self>;
 
@@ -31,7 +27,7 @@ pub trait MenuItem: Component + Sized {
             let (entity, vis, node, context_menu) = menu.deref_mut();
             commands.entity(*entity).clear_children().with_children(|p| {
                 for item in Self::list_available_items() {
-                    let label = Text::new(item.get_action().get_label());
+                    let label = Text::new(item.get_label());
                     p.spawn((
                         Node {
                             padding: UiRect::all(px(4.0)),
@@ -68,7 +64,7 @@ pub trait MenuItem: Component + Sized {
         let (vis, context_menu) = menu.deref_mut();
         if let Ok(item) = items.get(event.entity) {
             if let Some(target) = context_menu.target {
-                commands.trigger(item.get_action().create_entity_event(target));
+                commands.trigger(item.create_event(target));
                 context_menu.target = None;
             }
         }

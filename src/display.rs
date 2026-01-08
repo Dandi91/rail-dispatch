@@ -1,7 +1,7 @@
 use crate::assets::{AssetHandles, LoadingState};
 use crate::common::LampId;
 use crate::debug_overlay::UpdateDebugObservers;
-use crate::dropdown_menu::{MenuAction, MenuItem};
+use crate::dropdown_menu::DropDownMenu;
 use crate::level::{LampData, Level};
 use crate::simulation::messages::{LampUpdate, LampUpdateState};
 use bevy::prelude::*;
@@ -100,49 +100,36 @@ impl DisplayBoardBundle {
     }
 }
 
-#[derive(Clone, Copy)]
-pub enum SignalMenuAction {
+#[derive(EntityEvent)]
+struct SignalMenuEvent {
+    entity: Entity,
+    action: SignalMenu,
+}
+
+#[derive(Component, Clone, Copy)]
+enum SignalMenu {
     SpawnTrain,
     ToggleSignal,
     DebugInfo,
 }
 
-#[derive(EntityEvent)]
-pub struct SignalMenuEvent {
-    pub entity: Entity,
-    pub action: SignalMenuAction,
-}
+impl DropDownMenu for SignalMenu {
+    type Event<'a> = SignalMenuEvent;
 
-impl MenuAction for SignalMenuAction {
-    fn create_entity_event<'a>(&self, entity: Entity) -> impl EntityEvent<Trigger<'a>: Default> {
+    fn create_event(&self, entity: Entity) -> Self::Event<'_> {
         SignalMenuEvent { entity, action: *self }
     }
 
     fn get_label(&self) -> impl Into<String> {
         match self {
-            SignalMenuAction::SpawnTrain => "Spawn Train",
-            SignalMenuAction::ToggleSignal => "Toggle Signal",
-            SignalMenuAction::DebugInfo => "Debug Info",
+            SignalMenu::SpawnTrain => "Spawn Train",
+            SignalMenu::ToggleSignal => "Toggle Signal",
+            SignalMenu::DebugInfo => "Debug Info",
         }
-    }
-}
-
-#[derive(Component)]
-struct SignalMenuItem(SignalMenuAction);
-
-impl MenuItem for SignalMenuItem {
-    type Action = SignalMenuAction;
-
-    fn get_action(&self) -> &Self::Action {
-        &self.0
     }
 
     fn list_available_items() -> impl IntoIterator<Item = Self> {
-        vec![
-            SignalMenuItem(SignalMenuAction::SpawnTrain),
-            SignalMenuItem(SignalMenuAction::ToggleSignal),
-            SignalMenuItem(SignalMenuAction::DebugInfo),
-        ]
+        vec![SignalMenu::SpawnTrain, SignalMenu::ToggleSignal, SignalMenu::DebugInfo]
     }
 }
 
@@ -182,7 +169,7 @@ fn setup(
         mapper.insert(lamp.id, entity);
     }
 
-    SignalMenuItem::register(&mut commands, mapper.values().cloned());
+    SignalMenu::register(&mut commands, mapper.values().cloned());
     commands.trigger(UpdateDebugObservers);
 }
 
