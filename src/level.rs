@@ -48,7 +48,7 @@ pub struct SwitchData {
     pub direction: Direction,
 }
 
-#[derive(Copy, Clone, Deserialize, Reflect)]
+#[derive(Copy, Clone, PartialEq, Eq, Deserialize, Reflect)]
 #[serde(rename_all = "lowercase")]
 pub enum SpawnerKind {
     Spawn,
@@ -84,6 +84,7 @@ impl Plugin for LevelPlugin {
     }
 }
 
+#[derive(TypePath)]
 struct LevelLoader;
 
 #[derive(Debug, Error)]

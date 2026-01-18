@@ -97,11 +97,11 @@ fn setup(mut commands: Commands) {
             position_type: PositionType::Absolute,
             border: UiRect::all(px(1)),
             flex_direction: FlexDirection::Column,
+            border_radius: BorderRadius::all(px(3.0)),
             ..default()
         },
         MENU_BACKGROUND_DEFAULT,
         BorderColor::all(Color::WHITE),
-        BorderRadius::all(px(3.0)),
         GlobalZIndex(100),
         Visibility::Hidden,
     ));

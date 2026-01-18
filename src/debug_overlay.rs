@@ -43,11 +43,12 @@ fn setup(mut commands: Commands) {
                 border: UiRect::all(px(1)),
                 padding: UiRect::all(px(5)),
                 flex_direction: FlexDirection::Column,
+                border_radius: BorderRadius::all(px(3.0)),
                 ..default()
             },
             BackgroundColor(Color::srgb(0.21, 0.21, 0.21)),
             BorderColor::all(Color::WHITE),
-            BorderRadius::all(px(3.0)),
+            ZIndex(99),
             Pickable::IGNORE,
             Visibility::Hidden,
         ))
@@ -82,8 +83,8 @@ fn on_over_lamp(
     let target = event.entity;
     if let Ok(lamp) = lamps.get(target) {
         let (children, vis, node) = info.deref_mut();
-        *writer.text(children[0], 0) = format!("Lamp ID: {}", lamp.id);
-        let (lamp_str, train_ids) = block_map.get_lamp_info(lamp.id);
+        *writer.text(children[0], 0) = format!("Lamp ID: {}", lamp.0);
+        let (lamp_str, train_ids) = block_map.get_lamp_info(lamp.0);
         *writer.text(children[1], 0) = lamp_str;
         if let Some(train_ids) = train_ids {
             let first = *train_ids.first().expect("at least one train in block");
