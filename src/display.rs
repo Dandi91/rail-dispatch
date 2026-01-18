@@ -4,7 +4,6 @@ use crate::debug_overlay::UpdateDebugObservers;
 use crate::dropdown_menu::DropDownMenu;
 use crate::level::{LampData, Level, SpawnerData, SpawnerKind};
 use crate::simulation::messages::{LampUpdate, LampUpdateState};
-use bevy::ecs::system::entity_command::observe;
 use bevy::prelude::*;
 use std::collections::HashMap;
 
@@ -66,7 +65,7 @@ struct LampMapper(HashMap<LampId, Entity>);
 struct DisplayBoard;
 
 fn get_board_bundle(board: Handle<Image>) -> impl Bundle {
-    (DisplayBoard::default(), ImageNode::new(board), ZIndex(1))
+    (DisplayBoard, ImageNode::new(board), ZIndex(1))
 }
 
 #[derive(Component)]

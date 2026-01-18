@@ -4,6 +4,9 @@ use std::ops::DerefMut;
 const MENU_BACKGROUND_DEFAULT: BackgroundColor = BackgroundColor(Color::srgb(0.15, 0.15, 0.15));
 const MENU_BACKGROUND_HIGHLIGHT: BackgroundColor = BackgroundColor(Color::srgb(0.31, 0.31, 0.31));
 
+#[derive(Component)]
+struct ContextMenuItem;
+
 #[derive(Component, Default)]
 pub struct ContextMenu {
     target: Option<Entity>,
@@ -32,6 +35,7 @@ pub trait DropDownMenu: Component + Sized {
             for item in Self::list_available_items() {
                 let label = Text::new(item.get_label());
                 p.spawn((
+                    ContextMenuItem,
                     Node {
                         padding: UiRect::all(px(4.0)),
                         ..default()
@@ -39,8 +43,6 @@ pub trait DropDownMenu: Component + Sized {
                     item,
                     Pickable::default(),
                 ))
-                .observe(on_menu_hover)
-                .observe(on_menu_out)
                 .with_children(|item| {
                     item.spawn((label, TextFont::from_font_size(12.0), Pickable::IGNORE));
                 });
@@ -91,26 +93,35 @@ impl Plugin for DropdownPlugin {
 }
 
 fn setup(mut commands: Commands) {
-    commands.spawn((
-        ContextMenu::default(),
-        Node {
-            position_type: PositionType::Absolute,
-            border: UiRect::all(px(1)),
-            flex_direction: FlexDirection::Column,
-            border_radius: BorderRadius::all(px(3.0)),
-            ..default()
-        },
-        MENU_BACKGROUND_DEFAULT,
-        BorderColor::all(Color::WHITE),
-        GlobalZIndex(100),
-        Visibility::Hidden,
-    ));
-}
-
-fn on_menu_hover(event: On<Pointer<Over>>, mut commands: Commands) {
-    commands.entity(event.entity).insert(MENU_BACKGROUND_HIGHLIGHT);
-}
-
-fn on_menu_out(event: On<Pointer<Out>>, mut commands: Commands) {
-    commands.entity(event.entity).remove::<BackgroundColor>();
+    commands
+        .spawn((
+            ContextMenu::default(),
+            Node {
+                position_type: PositionType::Absolute,
+                border: UiRect::all(px(1)),
+                flex_direction: FlexDirection::Column,
+                border_radius: BorderRadius::all(px(3.0)),
+                ..default()
+            },
+            MENU_BACKGROUND_DEFAULT,
+            BorderColor::all(Color::WHITE),
+            GlobalZIndex(100),
+            Visibility::Hidden,
+        ))
+        .observe(
+            |event: On<Pointer<Over>>, menu_items: Query<&ContextMenuItem>, mut commands: Commands| {
+                let target = event.original_event_target();
+                if menu_items.get(target).is_ok() {
+                    commands.entity(target).insert(MENU_BACKGROUND_HIGHLIGHT);
+                }
+            },
+        )
+        .observe(
+            |event: On<Pointer<Out>>, menu_items: Query<&ContextMenuItem>, mut commands: Commands| {
+                let target = event.original_event_target();
+                if menu_items.get(target).is_ok() {
+                    commands.entity(target).remove::<BackgroundColor>();
+                }
+            },
+        );
 }
