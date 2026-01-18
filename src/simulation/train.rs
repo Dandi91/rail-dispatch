@@ -321,7 +321,7 @@ fn update(
 fn spawn_train(train_id: TrainId, block_map: &BlockMap, block_updates: &mut MessageWriter<BlockUpdate>) -> Train {
     let mut cars: Vec<RailVehicle> = Vec::with_capacity(100);
     cars.extend([RailVehicle::new_locomotive(138_000.0, 18.15, 2250.0, 375.0); 2]);
-    cars.extend([RailVehicle::new_car(30_000.0, 15.0, 70_000.0); 60]);
+    cars.extend([RailVehicle::new_car(24_000.0, 15.0, 70_000.0); 60]);
 
     let spawn_pos = TrackPoint {
         block_id: 2,

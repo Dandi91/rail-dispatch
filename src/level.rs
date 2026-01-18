@@ -11,6 +11,7 @@ pub struct Level {
     pub blocks: Vec<BlockData>,
     pub connections: Vec<ConnectionData>,
     pub switches: Vec<SwitchData>,
+    pub spawners: Vec<SpawnerData>,
     pub signals: Vec<SignalData>,
     pub background: HexColor,
 }
@@ -45,6 +46,24 @@ pub struct SwitchData {
     pub straight: BlockId,
     pub side: BlockId,
     pub direction: Direction,
+}
+
+#[derive(Copy, Clone, Deserialize, Reflect)]
+#[serde(rename_all = "lowercase")]
+pub enum SpawnerKind {
+    Spawn,
+    Despawn,
+    Both,
+}
+
+#[derive(Deserialize, Reflect)]
+pub struct SpawnerData {
+    pub block_id: BlockId,
+    pub kind: SpawnerKind,
+    #[serde(default)]
+    pub x: f32,
+    #[serde(default)]
+    pub y: f32,
 }
 
 #[derive(Deserialize, Reflect)]

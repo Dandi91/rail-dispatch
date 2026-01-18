@@ -1,11 +1,12 @@
 use crate::assets::{AssetHandles, LoadingState};
-use crate::common::LampId;
+use crate::common::{BlockId, LampId};
 use crate::debug_overlay::UpdateDebugObservers;
 use crate::dropdown_menu::DropDownMenu;
-use crate::level::{LampData, Level};
+use crate::level::{LampData, Level, SpawnerData, SpawnerKind};
 use crate::simulation::messages::{LampUpdate, LampUpdateState};
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
+use bevy::ui::FocusPolicy;
 use std::collections::HashMap;
 
 pub const DEFAULT_LAMP_HEIGHT: f32 = 7.0;
@@ -82,7 +83,7 @@ impl From<&LampData> for Lamp {
 struct LampMapper(HashMap<LampId, Entity>);
 
 #[derive(Component, Default)]
-#[require(Transform, Anchor::TOP_LEFT)]
+#[require(Transform, Pickable::IGNORE, Anchor::TOP_LEFT)]
 struct DisplayBoard;
 
 #[derive(Bundle)]
@@ -95,41 +96,76 @@ impl DisplayBoardBundle {
     fn new(image: Handle<Image>) -> Self {
         Self {
             display_board: Default::default(),
-            sprite: Sprite::from(image),
+            sprite: image.into(),
         }
+    }
+}
+
+#[derive(Component)]
+#[require(Node, Button, BackgroundColor(Color::WHITE))]
+struct Spawner {
+    block_id: BlockId,
+    kind: SpawnerKind,
+}
+
+#[derive(Bundle)]
+struct SpawnerBundle {
+    spawner: Spawner,
+    transform: Transform,
+}
+
+const SPAWNER_SIZE: Vec2 = vec2(28.0, 14.0);
+
+impl SpawnerBundle {
+    fn new(data: &SpawnerData) -> Self {
+        Self {
+            spawner: Spawner {
+                block_id: data.block_id,
+                kind: data.kind,
+            },
+            transform: Transform::from_translation(vec3(data.x, -data.y, 10.0)),
+        }
+    }
+
+    fn spawn(commands: &mut Commands, data: &SpawnerData) {
+        commands.spawn(SpawnerBundle::new(data)).with_child((
+            Sprite::from_color(LAMP_COLOR_GRAY, SPAWNER_SIZE),
+            Anchor::TOP_LEFT,
+            Pickable::default(),
+        ));
     }
 }
 
 #[derive(EntityEvent)]
-struct SignalMenuEvent {
+struct LampMenuEvent {
     entity: Entity,
-    action: SignalMenu,
+    action: LampMenu,
 }
 
 #[derive(Component, Clone, Copy)]
-enum SignalMenu {
+enum LampMenu {
     SpawnTrain,
-    ToggleSignal,
-    DebugInfo,
+    DebugOn,
+    DebugOff,
 }
 
-impl DropDownMenu for SignalMenu {
-    type Event<'a> = SignalMenuEvent;
+impl DropDownMenu for LampMenu {
+    type Event<'a> = LampMenuEvent;
 
     fn create_event(&self, entity: Entity) -> Self::Event<'_> {
-        SignalMenuEvent { entity, action: *self }
+        LampMenuEvent { entity, action: *self }
     }
 
     fn get_label(&self) -> impl Into<String> {
         match self {
-            SignalMenu::SpawnTrain => "Spawn Train",
-            SignalMenu::ToggleSignal => "Toggle Signal",
-            SignalMenu::DebugInfo => "Debug Info",
+            LampMenu::SpawnTrain => "Spawn Train",
+            LampMenu::DebugOn => "Debug Switch Lamp On",
+            LampMenu::DebugOff => "Debug Switch Lamp Off",
         }
     }
 
     fn list_available_items() -> impl IntoIterator<Item = Self> {
-        vec![SignalMenu::SpawnTrain, SignalMenu::ToggleSignal, SignalMenu::DebugInfo]
+        vec![LampMenu::SpawnTrain, LampMenu::DebugOn, LampMenu::DebugOff]
     }
 }
 
@@ -140,7 +176,7 @@ impl Plugin for DisplayPlugin {
         app.init_resource::<LampMapper>()
             .add_systems(Startup, startup)
             .add_systems(OnExit(LoadingState::Loading), setup)
-            .add_systems(Update, lamp_updates);
+            .add_systems(Update, (lamp_updates, update_spawners));
     }
 }
 
@@ -168,17 +204,52 @@ fn setup(
         let entity = commands.spawn(LampBundle::from(lamp)).id();
         mapper.insert(lamp.id, entity);
     }
-
-    SignalMenu::register(&mut commands, mapper.values().cloned());
+    LampMenu::register(&mut commands, mapper.values().cloned());
     commands.trigger(UpdateDebugObservers);
+
+    for spawner in &level.spawners {
+        if matches!(spawner.kind, SpawnerKind::Despawn) {
+            continue;
+        };
+        SpawnerBundle::spawn(&mut commands, spawner);
+    }
 }
 
-fn on_signal_action(event: On<SignalMenuEvent>) {
-    info!(
-        "On click menu item '{}' {:?}",
-        event.action.get_label().into(),
-        event.entity,
-    );
+fn on_signal_action(event: On<LampMenuEvent>, query: Query<&Lamp>, mut lamp_updates: MessageWriter<LampUpdate>) {
+    if let Ok(lamp) = query.get(event.entity) {
+        match event.action {
+            LampMenu::SpawnTrain => {}
+            LampMenu::DebugOn => {
+                lamp_updates.write(LampUpdate::on(lamp.id));
+            }
+            LampMenu::DebugOff => {
+                lamp_updates.write(LampUpdate::off(lamp.id));
+            }
+        }
+        info!(
+            "Used '{}' on lamp ID {} ({:?})",
+            event.action.get_label().into(),
+            lamp.id,
+            event.entity
+        );
+    }
+}
+
+fn update_spawners(query: Query<(&Interaction, &Spawner), Changed<Interaction>>) {
+    for (interaction, spawner) in query {
+        info!("Update spawner {}, interaction {:?}", spawner.block_id, interaction);
+        match interaction {
+            Interaction::Pressed => {
+                info!("Spawn train on block {}", spawner.block_id);
+            }
+            Interaction::Hovered => {
+                // sprite.color = Color::WHITE;
+            }
+            Interaction::None => {
+                // sprite.color = LAMP_COLOR_GRAY;
+            }
+        }
+    }
 }
 
 fn lamp_updates(
