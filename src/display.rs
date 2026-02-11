@@ -1,6 +1,5 @@
 use crate::assets::{AssetHandles, LoadingState};
 use crate::common::{BlockId, LampId};
-use crate::debug_overlay::UpdateDebugObservers;
 use crate::dropdown_menu::DropDownMenu;
 use crate::level::{LampData, Level, SpawnerData, SpawnerKind};
 use crate::simulation::messages::{LampUpdate, LampUpdateState};
@@ -92,7 +91,6 @@ fn get_spawner_bundle(data: &SpawnerData) -> impl Bundle {
             ..default()
         },
         BackgroundColor(Color::WHITE),
-        Interaction::None,
     )
 }
 
@@ -104,7 +102,6 @@ struct LampMenuEvent {
 
 #[derive(Component, Clone, Copy)]
 enum LampMenu {
-    SpawnTrain,
     DebugOn,
     DebugOff,
 }
@@ -118,16 +115,55 @@ impl DropDownMenu for LampMenu {
 
     fn get_label(&self) -> impl Into<String> {
         match self {
-            LampMenu::SpawnTrain => "Spawn Train",
             LampMenu::DebugOn => "Debug Switch Lamp On",
             LampMenu::DebugOff => "Debug Switch Lamp Off",
         }
     }
 
     fn list_available_items() -> impl IntoIterator<Item = Self> {
-        vec![LampMenu::SpawnTrain, LampMenu::DebugOn, LampMenu::DebugOff]
+        vec![LampMenu::DebugOn, LampMenu::DebugOff]
     }
 }
+
+#[derive(EntityEvent)]
+struct SpawnerMenuEvent {
+    entity: Entity,
+    action: SpawnerMenu,
+}
+
+#[derive(Component, Clone, Copy)]
+enum SpawnerMenu {
+    SpawnCargo,
+    SpawnPassenger,
+    SpawnLocoOnly,
+}
+
+impl DropDownMenu for SpawnerMenu {
+    type Event<'a> = SpawnerMenuEvent;
+
+    fn create_event(&self, entity: Entity) -> Self::Event<'_> {
+        SpawnerMenuEvent { entity, action: *self }
+    }
+
+    fn get_label(&self) -> impl Into<String> {
+        match self {
+            SpawnerMenu::SpawnCargo => "Spawn Cargo Train",
+            SpawnerMenu::SpawnPassenger => "Spawn Passenger Train",
+            SpawnerMenu::SpawnLocoOnly => "Spawn Locomotive Only",
+        }
+    }
+
+    fn list_available_items() -> impl IntoIterator<Item = Self> {
+        vec![
+            SpawnerMenu::SpawnCargo,
+            SpawnerMenu::SpawnPassenger,
+            SpawnerMenu::SpawnLocoOnly,
+        ]
+    }
+}
+
+#[derive(Event)]
+pub struct LevelSetupComplete;
 
 pub struct DisplayPlugin;
 
@@ -143,6 +179,7 @@ impl Plugin for DisplayPlugin {
 fn startup(mut commands: Commands) {
     commands.spawn(Camera2d);
     commands.add_observer(on_signal_action);
+    commands.add_observer(on_setup_complete);
 }
 
 fn setup(
@@ -186,13 +223,16 @@ fn setup(
         });
 
     LampMenu::register(&mut commands, mapper.values().cloned());
-    commands.trigger(UpdateDebugObservers);
+    commands.trigger(LevelSetupComplete);
+}
+
+fn on_setup_complete(_: On<LevelSetupComplete>, spawners: Query<Entity, With<Spawner>>, mut commands: Commands) {
+    SpawnerMenu::register(&mut commands, spawners);
 }
 
 fn on_signal_action(event: On<LampMenuEvent>, query: Query<&Lamp>, mut lamp_updates: MessageWriter<LampUpdate>) {
     if let Ok(lamp) = query.get(event.entity) {
         match event.action {
-            LampMenu::SpawnTrain => {}
             LampMenu::DebugOn => {
                 lamp_updates.write(LampUpdate::on(lamp.0));
             }
@@ -200,7 +240,7 @@ fn on_signal_action(event: On<LampMenuEvent>, query: Query<&Lamp>, mut lamp_upda
                 lamp_updates.write(LampUpdate::off(lamp.0));
             }
         }
-        info!(
+        debug!(
             "Used '{}' on lamp ID {} ({:?})",
             event.action.get_label().into(),
             lamp.0,

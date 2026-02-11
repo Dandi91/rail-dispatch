@@ -1,11 +1,8 @@
-use crate::display::Lamp;
+use crate::display::{Lamp, LevelSetupComplete};
 use crate::simulation::block::BlockMap;
 use crate::simulation::train::Train;
 use bevy::prelude::*;
 use std::ops::DerefMut;
-
-#[derive(Event)]
-pub struct UpdateDebugObservers;
 
 #[derive(Component)]
 struct DetailsInfo;
@@ -61,7 +58,7 @@ fn setup(mut commands: Commands) {
     commands.add_observer(on_setup);
 }
 
-fn on_setup(_: On<UpdateDebugObservers>, lamps: Query<Entity, With<Lamp>>, mut commands: Commands) {
+fn on_setup(_: On<LevelSetupComplete>, lamps: Query<Entity, With<Lamp>>, mut commands: Commands) {
     let mut on_over = Observer::new(on_over_lamp);
     let mut on_out = Observer::new(on_out_lamp);
 
