@@ -53,6 +53,69 @@ impl<T: Chunkable> SparseVec<T> {
     pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, T> {
         self.items.iter_mut()
     }
+
+    pub fn last_id(&self) -> Option<u32> {
+        self.items.last().map(|x| x.get_id())
+    }
+
+    pub fn insert(&mut self, item: T) {
+        let id = item.get_id();
+
+        if let Some(last_id) = self.last_id() {
+            if id > last_id {
+                // Fast path if appending after existing sorted data
+                if id != last_id + 1 {
+                    self.chunks.push(Chunk {
+                        start_id: id,
+                        start_index: self.items.len(),
+                    });
+                }
+                self.items.push(item);
+                return;
+            }
+        } else {
+            // No data yet, fast path if inserting at the beginning
+            self.chunks.push(Chunk {
+                start_id: id,
+                start_index: 0,
+            });
+            self.items.push(item);
+            return;
+        }
+
+        // Slow path: insertion in the middle or out of order
+        let index = self.items.partition_point(|x| x.get_id() < id);
+        if index < self.items.len() && self.items[index].get_id() == id {
+            self.items[index] = item;
+        } else {
+            self.items.insert(index, item);
+            self.rebuild_chunks();
+        }
+    }
+
+    fn rebuild_chunks(&mut self) {
+        self.chunks.clear();
+        if self.items.is_empty() {
+            return;
+        }
+
+        self.chunks.push(Chunk {
+            start_id: self.items[0].get_id(),
+            start_index: 0,
+        });
+        self.chunks.extend(
+            self.items
+                .iter()
+                .map(|x| x.get_id())
+                .enumerate()
+                .tuple_windows()
+                .filter(|(a, b)| b.1 - a.1 != 1)
+                .map(|(_, b)| Chunk {
+                    start_id: b.1,
+                    start_index: b.0,
+                }),
+        );
+    }
 }
 
 impl<T: Chunkable> Default for SparseVec<T> {
@@ -66,25 +129,10 @@ impl<T: Chunkable> Default for SparseVec<T> {
 
 impl<T: Chunkable> FromIterator<T> for SparseVec<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        let items: Vec<T> = iter.into_iter().sorted_by_key(|item| item.get_id()).collect();
-        let mut chunks: Vec<Chunk> = vec![Chunk {
-            start_id: items[0].get_id(),
-            start_index: 0,
-        }];
-        chunks.extend(
-            items
-                .iter()
-                .map(|x| x.get_id())
-                .enumerate()
-                .tuple_windows()
-                .filter(|(a, b)| b.1 - a.1 != 1)
-                .map(|(_, b)| Chunk {
-                    start_id: b.1,
-                    start_index: b.0,
-                }),
-        );
-
-        Self { chunks, items }
+        let mut vec = Self::default();
+        vec.items = iter.into_iter().sorted_by_key(|item| item.get_id()).collect();
+        vec.rebuild_chunks();
+        vec
     }
 }
 
@@ -164,5 +212,23 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_insert() {
+        let mut vec: SparseVec<TestItem> = SparseVec::default();
+        vec.insert(TestItem { id: 1 });
+        vec.insert(TestItem { id: 3 });
+        vec.insert(TestItem { id: 2 });
+
+        assert_eq!(vec.items.len(), 3);
+        assert_eq!(vec.chunks.len(), 1);
+        assert_eq!(vec.get(1).unwrap().id, 1);
+        assert_eq!(vec.get(2).unwrap().id, 2);
+        assert_eq!(vec.get(3).unwrap().id, 3);
+
+        vec.insert(TestItem { id: 10 });
+        assert_eq!(vec.items.len(), 4);
+        assert_eq!(vec.chunks.len(), 2);
     }
 }

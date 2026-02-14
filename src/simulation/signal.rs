@@ -29,6 +29,15 @@ impl SignalMap {
     pub fn iter(&self) -> std::slice::Iter<'_, TrackSignal> {
         self.signals.iter()
     }
+
+    pub fn insert(&mut self, signal: TrackSignal) {
+        self.map.insert((signal.position.block_id, signal.direction), signal.id);
+        self.signals.insert(signal);
+    }
+
+    pub fn inner(&self) -> &SparseVec<TrackSignal> {
+        &self.signals
+    }
 }
 
 impl FromIterator<TrackSignal> for SignalMap {
