@@ -3,6 +3,7 @@ use crate::common::{BlockId, LampId};
 use crate::dropdown_menu::DropDownMenu;
 use crate::level::{LampData, Level, SpawnerData, SpawnerKind};
 use crate::simulation::messages::{LampUpdate, LampUpdateState};
+use crate::simulation::spawner::{SpawnRequest, SpawnTrainType};
 use bevy::prelude::*;
 use std::collections::HashMap;
 
@@ -69,18 +70,16 @@ fn get_board_bundle(board: Handle<Image>) -> impl Bundle {
 
 #[derive(Component)]
 #[require(Pickable)]
-struct Spawner {
+struct SpawnerUI {
     block_id: BlockId,
-    kind: SpawnerKind,
 }
 
 const SPAWNER_SIZE: Val2 = Val2::px(28.0, 14.0);
 
 fn get_spawner_bundle(data: &SpawnerData) -> impl Bundle {
     (
-        Spawner {
+        SpawnerUI {
             block_id: data.block_id,
-            kind: data.kind,
         },
         Node {
             position_type: PositionType::Absolute,
@@ -179,6 +178,7 @@ impl Plugin for DisplayPlugin {
 fn startup(mut commands: Commands) {
     commands.spawn(Camera2d);
     commands.add_observer(on_signal_action);
+    commands.add_observer(on_spawner_action);
     commands.add_observer(on_setup_complete);
 }
 
@@ -226,8 +226,26 @@ fn setup(
     commands.trigger(LevelSetupComplete);
 }
 
-fn on_setup_complete(_: On<LevelSetupComplete>, spawners: Query<Entity, With<Spawner>>, mut commands: Commands) {
+fn on_setup_complete(_: On<LevelSetupComplete>, spawners: Query<Entity, With<SpawnerUI>>, mut commands: Commands) {
     SpawnerMenu::register(&mut commands, spawners);
+}
+
+fn on_spawner_action(event: On<SpawnerMenuEvent>, query: Query<&SpawnerUI>, mut commands: Commands) {
+    if let Ok(spawner) = query.get(event.entity) {
+        let train_type = match event.action {
+            SpawnerMenu::SpawnCargo => SpawnTrainType::Cargo,
+            SpawnerMenu::SpawnPassenger => SpawnTrainType::Passenger,
+            SpawnerMenu::SpawnLocoOnly => SpawnTrainType::Locomotive,
+        };
+        commands.trigger(SpawnRequest {
+            block_id: spawner.block_id,
+            train_type,
+        });
+        info!(
+            "Requested {:?} train from spawner block {}",
+            train_type, spawner.block_id
+        );
+    }
 }
 
 fn on_signal_action(event: On<LampMenuEvent>, query: Query<&Lamp>, mut lamp_updates: MessageWriter<LampUpdate>) {
@@ -249,7 +267,7 @@ fn on_signal_action(event: On<LampMenuEvent>, query: Query<&Lamp>, mut lamp_upda
     }
 }
 
-fn update_spawners(query: Query<(&Interaction, &Spawner), Changed<Interaction>>) {
+fn update_spawners(query: Query<(&Interaction, &SpawnerUI), Changed<Interaction>>) {
     for (interaction, spawner) in query {
         info!("Update spawner {}, interaction {:?}", spawner.block_id, interaction);
         match interaction {

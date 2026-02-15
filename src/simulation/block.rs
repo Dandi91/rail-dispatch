@@ -3,7 +3,7 @@ use crate::common::LampId;
 use crate::common::{BlockId, Direction, TrainId};
 use crate::level::{BlockData, Level};
 use crate::simulation::messages::{BlockUpdate, BlockUpdateState, LampUpdate, SignalUpdate, SignalUpdateState};
-use crate::simulation::signal::{SignalAspect, SignalMap, TrackSignal};
+use crate::simulation::signal::{SignalAspect, SignalMap, SpeedControl, TrackSignal};
 use crate::simulation::sparse_vec::{Chunkable, SparseVec};
 use crate::simulation::switch::Switch;
 use arrayvec::ArrayVec;
@@ -89,6 +89,42 @@ impl BlockMap {
             Direction::Odd => block.prev?,
         };
         Some(self.blocks.get(next).expect("block not found"))
+    }
+
+    pub fn add_signal(&mut self, position: TrackPoint, direction: Direction, speed_ctrl: SpeedControl, name: String) {
+        self.signals.insert(TrackSignal {
+            id: self.signals.inner().last_id().unwrap_or(0) + 1,
+            position,
+            direction,
+            speed_ctrl,
+            name,
+            ..Default::default()
+        });
+    }
+
+    pub fn add_block(&mut self, length_m: f64, connect_with: BlockId) -> (BlockId, Direction) {
+        let id = self.blocks.last_id().unwrap_or(0) + 1;
+        let mut block = Block {
+            id,
+            length_m,
+            ..Default::default()
+        };
+
+        let existing = self.blocks.get_mut(connect_with).expect("block not found");
+        let direction = existing.get_end_direction().expect("block has no open end");
+        match direction {
+            Direction::Even => {
+                existing.next.replace(id);
+                block.prev.replace(connect_with);
+            }
+            Direction::Odd => {
+                existing.prev.replace(id);
+                block.next.replace(connect_with);
+            }
+        }
+
+        self.blocks.insert(block);
+        (id, direction)
     }
 
     pub fn despawn_train(&mut self, train_id: TrainId, block_updates: &mut MessageWriter<BlockUpdate>) {
@@ -327,6 +363,17 @@ impl Block {
             offset_m: self.length_m / 2.0,
         }
     }
+
+    /// Returns a direction in which the block has an open end, or `None` if both ends are connected.
+    pub fn get_end_direction(&mut self) -> Option<Direction> {
+        if self.prev.is_none() {
+            Some(Direction::Odd)
+        } else if self.next.is_none() {
+            Some(Direction::Even)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -402,7 +449,7 @@ impl Plugin for MapPlugin {
         app.add_systems(OnExit(LoadingState::Loading), (setup, init).chain())
             .add_systems(
                 Update,
-                (block_updates, signal_updates).run_if(in_state(LoadingState::Loaded)),
+                (block_updates, signal_updates).run_if(in_state(LoadingState::Instantiated)),
             );
     }
 }
@@ -412,8 +459,13 @@ fn setup(handles: Res<AssetHandles>, levels: Res<Assets<Level>>, mut commands: C
     commands.insert_resource(BlockMap::from_level(level));
 }
 
-fn init(mut block_map: ResMut<BlockMap>, mut block_updates: MessageWriter<BlockUpdate>) {
+fn init(
+    mut block_map: ResMut<BlockMap>,
+    mut block_updates: MessageWriter<BlockUpdate>,
+    mut next_loading_state: ResMut<NextState<LoadingState>>,
+) {
     block_map.init(&mut block_updates);
+    next_loading_state.set(LoadingState::Instantiated);
 }
 
 fn block_updates(

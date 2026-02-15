@@ -4,6 +4,7 @@ use crate::simulation::block::{BlockMap, TrackPoint};
 use crate::simulation::messages::BlockUpdate;
 use crate::simulation::signal::SpeedLimit;
 use bevy::prelude::*;
+use std::collections::HashMap;
 
 #[derive(Default)]
 struct TrainControls {
@@ -28,7 +29,7 @@ enum VehicleType {
 }
 
 #[derive(Copy, Clone)]
-struct RailVehicle {
+pub struct RailVehicle {
     vehicle_type: VehicleType,
     mass_kg: f64,
     length_m: f64,
@@ -39,7 +40,7 @@ struct RailVehicle {
 }
 
 impl RailVehicle {
-    fn new_car(mass_kg: f64, length_m: f64, cargo_mass_kg: f64) -> RailVehicle {
+    pub fn new_car(mass_kg: f64, length_m: f64, cargo_mass_kg: f64) -> RailVehicle {
         RailVehicle {
             vehicle_type: VehicleType::RailCar,
             mass_kg,
@@ -51,7 +52,7 @@ impl RailVehicle {
         }
     }
 
-    fn new_locomotive(mass_kg: f64, length_m: f64, power_kw: f64, max_tractive_effort_kn: f64) -> RailVehicle {
+    pub fn new_locomotive(mass_kg: f64, length_m: f64, power_kw: f64, max_tractive_effort_kn: f64) -> RailVehicle {
         RailVehicle {
             vehicle_type: VehicleType::Locomotive,
             mass_kg,
@@ -275,35 +276,54 @@ impl Train {
     }
 }
 
+#[derive(Message)]
+pub struct TrainDespawnRequest {
+    pub id: TrainId,
+}
+
+#[derive(Message, Default)]
+pub struct TrainSpawnRequest {
+    pub number: String,
+    pub top_speed_kmh: f64,
+    pub actual_speed_kmh: f64,
+    pub position: TrackPoint,
+    pub direction: Direction,
+    pub vehicles: Vec<RailVehicle>,
+}
+
+#[derive(Resource, Deref, DerefMut, Default)]
+struct TrainMapper(HashMap<TrainId, Entity>);
+
 pub struct TrainPlugin;
 
 impl Plugin for TrainPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NextTrainId>()
-            .add_systems(Update, keyboard_handling.run_if(in_state(LoadingState::Loaded)))
-            .add_systems(FixedUpdate, update.run_if(in_state(LoadingState::Loaded)));
+            .init_resource::<TrainMapper>()
+            .add_message::<TrainSpawnRequest>()
+            .add_message::<TrainDespawnRequest>()
+            .add_systems(Update, keyboard_handling)
+            .add_systems(
+                Update,
+                (spawn_trains, despawn_trains).run_if(in_state(LoadingState::Instantiated)),
+            )
+            .add_systems(FixedUpdate, update.run_if(in_state(LoadingState::Instantiated)));
     }
 }
 
 fn keyboard_handling(
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut block_map: ResMut<BlockMap>,
-    query: Query<(Entity, &mut Train)>,
-    mut block_updates: MessageWriter<BlockUpdate>,
-    mut train_id: ResMut<NextTrainId>,
-    mut commands: Commands,
+    query: Query<&Train>,
+    mut spawn_requests: MessageWriter<TrainSpawnRequest>,
+    mut despawn_requests: MessageWriter<TrainDespawnRequest>,
 ) {
     if keyboard_input.just_pressed(KeyCode::KeyG) {
-        let train = spawn_train(train_id.next(), &block_map, &mut block_updates);
-        info!("Train {} spawned with ID {}", train.number, train.id);
-        commands.spawn(train);
+        spawn_requests.write(debug_spawn_request());
     }
-    if keyboard_input.just_pressed(KeyCode::KeyH)
-        && let Some((entity, train)) = query.iter().min_by_key(|(_, t)| t.id)
-    {
-        info!("Train {} despawned with ID {}", train.number, train.id);
-        block_map.despawn_train(train.id, &mut block_updates);
-        commands.entity(entity).despawn();
+    if keyboard_input.just_pressed(KeyCode::KeyH) {
+        if let Some(train) = query.iter().min_by_key(|t| t.id) {
+            despawn_requests.write(TrainDespawnRequest { id: train.id });
+        }
     }
 }
 
@@ -318,36 +338,82 @@ fn update(
     });
 }
 
-fn spawn_train(train_id: TrainId, block_map: &BlockMap, block_updates: &mut MessageWriter<BlockUpdate>) -> Train {
-    let mut cars: Vec<RailVehicle> = Vec::with_capacity(100);
-    cars.extend([RailVehicle::new_locomotive(138_000.0, 18.15, 2250.0, 375.0); 2]);
-    cars.extend([RailVehicle::new_car(24_000.0, 15.0, 70_000.0); 60]);
-
-    let spawn_pos = TrackPoint {
-        block_id: 2,
-        offset_m: 600.0,
-    };
-    let direction = Direction::Even;
-    let stats = get_train_stats(&cars);
-    let trace: Vec<TrackPoint> = block_map
-        .walk(&spawn_pos, stats.length_m.max(1.0), direction.reverse())
-        .collect();
-
-    block_updates.write_batch(
-        trace
-            .iter()
-            .map(|point| BlockUpdate::occupied(point.block_id, train_id)),
-    );
-
-    Train {
-        id: train_id,
-        number: rand::random_range(1000..=9999).to_string(),
-        direction,
-        stats,
-        vehicles: cars,
-        top_speed_kmh: 80.0,
-        front_position: spawn_pos,
-        back_position: trace.last().cloned().expect("at least one track point"),
-        ..default()
+fn despawn_trains(
+    query: Query<&Train>,
+    mut mapper: ResMut<TrainMapper>,
+    mut requests: MessageReader<TrainDespawnRequest>,
+    mut block_map: ResMut<BlockMap>,
+    mut block_updates: MessageWriter<BlockUpdate>,
+    mut commands: Commands,
+) {
+    for request in requests.read() {
+        if let Some(entity) = mapper.remove(&request.id) {
+            let train = query.get(entity).expect("invalid train entity");
+            info!("Train {} despawned with ID {}", train.number, train.id);
+            block_map.despawn_train(request.id, &mut block_updates);
+            commands.entity(entity).despawn();
+        }
     }
+}
+
+fn spawn_trains(
+    block_map: Res<BlockMap>,
+    mut mapper: ResMut<TrainMapper>,
+    mut requests: MessageReader<TrainSpawnRequest>,
+    mut block_updates: MessageWriter<BlockUpdate>,
+    mut train_id: ResMut<NextTrainId>,
+    mut commands: Commands,
+) {
+    for spawn in requests.read() {
+        let stats = get_train_stats(&spawn.vehicles);
+        let trace: Vec<TrackPoint> = block_map
+            .walk(&spawn.position, stats.length_m.max(1.0), spawn.direction.reverse())
+            .collect();
+
+        let train_id = train_id.next();
+        block_updates.write_batch(
+            trace
+                .iter()
+                .map(|point| BlockUpdate::occupied(point.block_id, train_id)),
+        );
+
+        info!("Train {} spawned with ID {}", spawn.number, train_id);
+        let entity = commands
+            .spawn(Train {
+                id: train_id,
+                number: spawn.number.clone(),
+                direction: spawn.direction,
+                stats,
+                vehicles: spawn.vehicles.clone(),
+                top_speed_kmh: spawn.top_speed_kmh,
+                speed_mps: spawn.actual_speed_kmh.mps(),
+                front_position: spawn.position.clone(),
+                back_position: trace.last().cloned().expect("at least one track point"),
+                ..default()
+            })
+            .id();
+        mapper.insert(train_id, entity);
+    }
+}
+
+fn debug_spawn_request() -> TrainSpawnRequest {
+    let mut vehicles: Vec<RailVehicle> = Vec::with_capacity(70);
+    vehicles.extend([RailVehicle::new_locomotive(138_000.0, 18.15, 2250.0, 375.0); 2]);
+    vehicles.extend([RailVehicle::new_car(24_000.0, 15.0, 70_000.0); 60]);
+
+    TrainSpawnRequest {
+        number: get_random_train_number(),
+        top_speed_kmh: 80.0,
+        position: TrackPoint {
+            block_id: 2,
+            offset_m: 600.0,
+        },
+        direction: Direction::Even,
+        vehicles,
+        ..Default::default()
+    }
+}
+
+pub fn get_random_train_number() -> String {
+    rand::random_range(1000..=9999).to_string()
 }

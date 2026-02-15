@@ -18,6 +18,7 @@ use dropdown_menu::DropdownPlugin;
 use level::LevelPlugin;
 use simulation::block::MapPlugin;
 use simulation::messages::MessagingPlugin;
+use simulation::spawner::SpawnerPlugin;
 use simulation::train::TrainPlugin;
 use time_controls::TimeControlsPlugin;
 
@@ -59,6 +60,7 @@ fn main() {
             MessagingPlugin,
             DisplayPlugin,
             TrainPlugin,
+            SpawnerPlugin,
             MapPlugin,
         ))
         .run();

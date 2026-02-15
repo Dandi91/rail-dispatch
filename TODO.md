@@ -3,3 +3,6 @@
   - Allow assigning speed restrictions in level config to every path of routing signals separately
   - Implement routes? Predefine routes in level config as a chain of switches and their positions?
 - Adjust train behavior when approaching a closed signal. Try to target stop position more precisely at lower speeds.
+- Increase the number of approach blocks in spawner for more realistic behavior
+  - On spawn, check if all approach blocks are free. Additional blocks allow spawned train to stop if exit is blocked.
+  - On despawn, additional blocks allow the entry signal to correctly cycle red-yellow-green.

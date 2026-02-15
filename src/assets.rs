@@ -64,6 +64,7 @@ pub enum LoadingState {
     #[default]
     Loading,
     Loaded,
+    Instantiated,
 }
 
 #[derive(Resource)]
