@@ -181,13 +181,13 @@ impl Train {
         TrainControls::default()
     }
 
-    fn get_braking_distance(&self, speed_limit: SpeedLimit) -> Option<f64> {
+    fn get_braking_distance(&self, speed_limit: SpeedLimit, safety_factor: f64) -> Option<f64> {
         let target_speed_mps = match speed_limit {
             SpeedLimit::Unrestricted => return None,
             SpeedLimit::Restricted(speed_limit_kmh) => speed_limit_kmh.mps(),
         };
 
-        let braking_force = self.stats.max_braking_force_n * 0.8;
+        let braking_force = self.stats.max_braking_force_n * safety_factor;
         let deceleration_mps2 = braking_force / self.stats.mass_kg;
 
         let speed_diff_mps = self.speed_mps - target_speed_mps;
@@ -196,6 +196,8 @@ impl Train {
     }
 
     fn update(&mut self, dt: f64, map: &BlockMap, block_updates: &mut MessageWriter<BlockUpdate>) {
+        const CREEP_SPEED_KMH: f64 = 20.0;
+        const CREEP_STOP_OFFSET_M: f64 = 50.0;
         if dt <= 0.0 {
             return;
         }
@@ -229,16 +231,30 @@ impl Train {
         let target_speed_mps = match map.lookup_signal_forward(&self.front_position, self.direction) {
             Some((signal, distance_m)) => {
                 let speeds = signal.speed_ctrl.apply_limit(self.top_speed_kmh);
-                let braking_distance = self.get_braking_distance(signal.speed_ctrl.passing_kmh);
+                let braking_distance = self.get_braking_distance(signal.speed_ctrl.passing_kmh, 0.8);
                 let speed_limit_kmh = match braking_distance {
                     None => speeds.approaching_kmh,
                     Some(braking_distance_m) => {
                         let approaching_mps = speeds.approaching_kmh.mps();
                         let need_slowdown = distance_m > braking_distance_m && self.target_speed_mps >= approaching_mps;
-                        if need_slowdown || distance_m > braking_distance_m + 200.0 {
+                        let normal_target = if need_slowdown || distance_m > braking_distance_m + 200.0 {
                             speeds.approaching_kmh
                         } else {
                             speeds.passing_kmh
+                        };
+                        // Two-phase stop: once the normal logic commits to stopping and speed is
+                        // already low, hold at creep speed until the precise final braking point.
+                        if normal_target < 0.1 && self.speed_mps <= CREEP_SPEED_KMH.mps() {
+                            let creep_braking_dist = self
+                                .get_braking_distance(signal.speed_ctrl.passing_kmh, 1.0)
+                                .unwrap_or(0.0);
+                            if distance_m > creep_braking_dist + CREEP_STOP_OFFSET_M {
+                                CREEP_SPEED_KMH
+                            } else {
+                                speeds.passing_kmh
+                            }
+                        } else {
+                            normal_target
                         }
                     }
                 };
