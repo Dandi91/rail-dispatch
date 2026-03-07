@@ -171,7 +171,7 @@ impl Plugin for DisplayPlugin {
         app.init_resource::<LampMapper>()
             .add_systems(Startup, startup)
             .add_systems(OnExit(LoadingState::Loading), setup)
-            .add_systems(Update, (lamp_updates, update_spawners));
+            .add_systems(Update, lamp_updates);
     }
 }
 
@@ -228,6 +228,8 @@ fn setup(
 
 fn on_setup_complete(_: On<LevelSetupComplete>, spawners: Query<Entity, With<SpawnerUI>>, mut commands: Commands) {
     SpawnerMenu::register(&mut commands, spawners);
+    commands.spawn(Observer::new(on_spawner_over).with_entities(spawners));
+    commands.spawn(Observer::new(on_spawner_out).with_entities(spawners));
 }
 
 fn on_spawner_action(event: On<SpawnerMenuEvent>, query: Query<&SpawnerUI>, mut commands: Commands) {
@@ -248,6 +250,18 @@ fn on_spawner_action(event: On<SpawnerMenuEvent>, query: Query<&SpawnerUI>, mut 
     }
 }
 
+fn on_spawner_over(event: On<Pointer<Over>>, mut query: Query<&mut BackgroundColor, With<SpawnerUI>>) {
+    if let Ok(mut color) = query.get_mut(event.entity) {
+        *color = BackgroundColor(LAMP_COLOR_GREEN);
+    }
+}
+
+fn on_spawner_out(event: On<Pointer<Out>>, mut query: Query<&mut BackgroundColor, With<SpawnerUI>>) {
+    if let Ok(mut color) = query.get_mut(event.entity) {
+        *color = BackgroundColor(Color::WHITE);
+    }
+}
+
 fn on_signal_action(event: On<LampMenuEvent>, query: Query<&Lamp>, mut lamp_updates: MessageWriter<LampUpdate>) {
     if let Ok(lamp) = query.get(event.entity) {
         match event.action {
@@ -264,23 +278,6 @@ fn on_signal_action(event: On<LampMenuEvent>, query: Query<&Lamp>, mut lamp_upda
             lamp.0,
             event.entity
         );
-    }
-}
-
-fn update_spawners(query: Query<(&Interaction, &SpawnerUI), Changed<Interaction>>) {
-    for (interaction, spawner) in query {
-        info!("Update spawner {}, interaction {:?}", spawner.block_id, interaction);
-        match interaction {
-            Interaction::Pressed => {
-                info!("Spawn train on block {}", spawner.block_id);
-            }
-            Interaction::Hovered => {
-                // sprite.color = Color::WHITE;
-            }
-            Interaction::None => {
-                // sprite.color = LAMP_COLOR_GRAY;
-            }
-        }
     }
 }
 
