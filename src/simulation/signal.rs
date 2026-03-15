@@ -30,13 +30,10 @@ impl SignalMap {
         self.signals.iter()
     }
 
+    #[allow(dead_code)]
     pub fn insert(&mut self, signal: TrackSignal) {
         self.map.insert((signal.position.block_id, signal.direction), signal.id);
         self.signals.insert(signal);
-    }
-
-    pub fn inner(&self) -> &SparseVec<TrackSignal> {
-        &self.signals
     }
 }
 

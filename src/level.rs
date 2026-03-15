@@ -61,6 +61,10 @@ pub struct SpawnerData {
     pub block_id: BlockId,
     pub kind: SpawnerKind,
     #[serde(default)]
+    pub approach_len: u8,
+    #[serde(default)]
+    pub speed_kmh: f64,
+    #[serde(default)]
     pub x: f32,
     #[serde(default)]
     pub y: f32,

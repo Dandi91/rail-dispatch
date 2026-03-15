@@ -3,7 +3,7 @@ use crate::common::LampId;
 use crate::common::{BlockId, Direction, TrainId};
 use crate::level::{BlockData, Level};
 use crate::simulation::messages::{BlockUpdate, BlockUpdateState, LampUpdate, SignalUpdate, SignalUpdateState};
-use crate::simulation::signal::{SignalAspect, SignalMap, SpeedControl, TrackSignal};
+use crate::simulation::signal::{SignalAspect, SignalMap, TrackSignal};
 use crate::simulation::sparse_vec::{Chunkable, SparseVec};
 use crate::simulation::switch::Switch;
 use arrayvec::ArrayVec;
@@ -91,40 +91,8 @@ impl BlockMap {
         Some(self.blocks.get(next).expect("block not found"))
     }
 
-    pub fn add_signal(&mut self, position: TrackPoint, direction: Direction, speed_ctrl: SpeedControl, name: String) {
-        self.signals.insert(TrackSignal {
-            id: self.signals.inner().last_id().unwrap_or(0) + 1,
-            position,
-            direction,
-            speed_ctrl,
-            name,
-            ..Default::default()
-        });
-    }
-
-    pub fn add_block(&mut self, length_m: f64, connect_with: BlockId) -> (BlockId, Direction) {
-        let id = self.blocks.last_id().unwrap_or(0) + 1;
-        let mut block = Block {
-            id,
-            length_m,
-            ..Default::default()
-        };
-
-        let existing = self.blocks.get_mut(connect_with).expect("block not found");
-        let direction = existing.get_end_direction().expect("block has no open end");
-        match direction {
-            Direction::Even => {
-                existing.next.replace(id);
-                block.prev.replace(connect_with);
-            }
-            Direction::Odd => {
-                existing.prev.replace(id);
-                block.next.replace(connect_with);
-            }
-        }
-
-        self.blocks.insert(block);
-        (id, direction)
+    pub fn get_block(&self, block_id: BlockId) -> Option<&Block> {
+        self.blocks.get(block_id)
     }
 
     pub fn despawn_train(&mut self, train_id: TrainId, block_updates: &mut MessageWriter<BlockUpdate>) {
@@ -276,6 +244,10 @@ impl BlockMap {
         None
     }
 
+    pub fn find_signal(&self, block_id: BlockId, direction: Direction) -> Option<&TrackSignal> {
+        self.signals.find_signal(block_id, direction)
+    }
+
     pub fn walk(&self, start: &TrackPoint, length_m: f64, direction: Direction) -> TrackWalker<'_> {
         let block = self.blocks.get(start.block_id).expect("invalid block ID");
         TrackWalker {
@@ -332,8 +304,8 @@ impl BlockMap {
 
 #[derive(Default)]
 pub struct Block {
-    id: BlockId,
-    length_m: f64,
+    pub id: BlockId,
+    pub length_m: f64,
     lamp_id: LampId,
     prev: Option<BlockId>,
     next: Option<BlockId>,
@@ -365,7 +337,7 @@ impl Block {
     }
 
     /// Returns a direction in which the block has an open end, or `None` if both ends are connected.
-    pub fn get_end_direction(&mut self) -> Option<Direction> {
+    pub fn get_end_direction(&self) -> Option<Direction> {
         if self.prev.is_none() {
             Some(Direction::Odd)
         } else if self.next.is_none() {
