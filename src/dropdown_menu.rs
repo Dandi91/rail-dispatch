@@ -21,15 +21,11 @@ pub trait DropDownMenu: Component + Sized {
 
     fn list_available_items() -> impl IntoIterator<Item = Self>;
 
-    fn on_entity_right_click(
+    fn on_entity_click(
         event: On<Pointer<Click>>,
         mut menu: Single<(Entity, &mut Visibility, &mut Node, &mut ContextMenu)>,
         mut commands: Commands,
     ) {
-        if event.button != PointerButton::Secondary {
-            return;
-        }
-
         let (entity, vis, node, context_menu) = menu.deref_mut();
         commands.entity(*entity).despawn_children().with_children(|p| {
             for item in Self::list_available_items() {
@@ -55,7 +51,7 @@ pub trait DropDownMenu: Component + Sized {
         context_menu.target = Some(event.entity);
     }
 
-    fn on_left_click(
+    fn on_menu_click(
         mut event: On<Pointer<Click>>,
         items: Populated<&Self>,
         mut menu: Single<(Entity, &mut Visibility, &mut ContextMenu)>,
@@ -79,8 +75,8 @@ pub trait DropDownMenu: Component + Sized {
     }
 
     fn register<E: IntoIterator<Item = Entity>>(commands: &mut Commands, entities: E) {
-        commands.spawn(Observer::new(Self::on_entity_right_click).with_entities(entities));
-        commands.add_observer(Self::on_left_click);
+        commands.spawn(Observer::new(Self::on_entity_click).with_entities(entities));
+        commands.add_observer(Self::on_menu_click);
     }
 }
 
