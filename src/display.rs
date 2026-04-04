@@ -4,6 +4,7 @@ use crate::dropdown_menu::DropDownMenu;
 use crate::level::{LampData, Level, SpawnerData, SpawnerKind};
 use crate::simulation::messages::{LampUpdate, LampUpdateState};
 use crate::simulation::spawner::{SpawnRequest, SpawnTrainType};
+use bevy::input::keyboard::Key;
 use bevy::prelude::*;
 use std::collections::HashMap;
 
@@ -121,6 +122,10 @@ impl DropDownMenu for LampMenu {
 
     fn list_available_items() -> impl IntoIterator<Item = Self> {
         vec![LampMenu::DebugOn, LampMenu::DebugOff]
+    }
+
+    fn key_filter(keyboard_input: Res<ButtonInput<Key>>) -> bool {
+        keyboard_input.pressed(Key::Control)
     }
 }
 

@@ -1,3 +1,4 @@
+use bevy::input::keyboard::Key;
 use bevy::prelude::*;
 use std::ops::DerefMut;
 
@@ -21,11 +22,20 @@ pub trait DropDownMenu: Component + Sized {
 
     fn list_available_items() -> impl IntoIterator<Item = Self>;
 
+    fn key_filter(_: Res<ButtonInput<Key>>) -> bool {
+        true
+    }
+
     fn on_entity_click(
         event: On<Pointer<Click>>,
+        keyboard_input: Res<ButtonInput<Key>>,
         mut menu: Single<(Entity, &mut Visibility, &mut Node, &mut ContextMenu)>,
         mut commands: Commands,
     ) {
+        if !Self::key_filter(keyboard_input) {
+            return;
+        }
+
         let (entity, vis, node, context_menu) = menu.deref_mut();
         commands.entity(*entity).despawn_children().with_children(|p| {
             for item in Self::list_available_items() {
