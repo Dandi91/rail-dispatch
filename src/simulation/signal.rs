@@ -1,4 +1,4 @@
-use crate::common::{BlockId, Direction, LampId, SignalId};
+use crate::common::{BlockId, Direction, LampId, SignalId, SignalType};
 use crate::level::SignalData;
 use crate::simulation::block::TrackPoint;
 use crate::simulation::sparse_vec::{Chunkable, SparseVec};
@@ -147,6 +147,7 @@ pub struct TrackSignal {
     pub direction: Direction,
     pub name: String,
     pub speed_ctrl: SpeedControl,
+    pub signal_type: SignalType,
 }
 
 impl From<&SignalData> for TrackSignal {
@@ -160,6 +161,7 @@ impl From<&SignalData> for TrackSignal {
             lamp_id: value.lamp_id,
             direction: value.direction,
             name: value.name.clone(),
+            signal_type: value.signal_type,
             ..Default::default()
         }
     }
@@ -174,5 +176,9 @@ impl Chunkable for TrackSignal {
 impl TrackSignal {
     pub fn change_aspect(&mut self, aspect: SignalAspect) {
         self.speed_ctrl = SpeedControl::default_for_aspect(aspect);
+    }
+
+    pub fn is_closed_manual(&self) -> bool {
+        self.signal_type == SignalType::Manual && self.speed_ctrl.aspect == SignalAspect::Forbidding
     }
 }

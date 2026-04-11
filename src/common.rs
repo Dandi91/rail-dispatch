@@ -11,6 +11,24 @@ pub type BlockId = u32;
 pub type SignalId = u32;
 pub type LampId = u32;
 pub type SwitchId = u32;
+pub type SectionId = u32;
+pub type StationId = u32;
+pub type RouteId = u32;
+
+#[derive(Deserialize, Reflect, PartialEq, Copy, Clone, Debug, Hash, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SwitchPosition {
+    Straight,
+    Side,
+}
+
+#[derive(Deserialize, Reflect, PartialEq, Copy, Clone, Default, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum SignalType {
+    #[default]
+    Automatic,
+    Manual,
+}
 
 #[derive(Deserialize_repr, Reflect, PartialEq, Copy, Clone, Default, Debug, Hash, Eq)]
 #[repr(i8)]

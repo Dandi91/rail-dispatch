@@ -1,5 +1,6 @@
-use crate::common::{HexColor, SignalId, SwitchId};
-use crate::{common::BlockId, common::Direction, common::LampId};
+use crate::common::{
+    BlockId, Direction, HexColor, LampId, RouteId, SectionId, SignalId, SignalType, StationId, SwitchId, SwitchPosition,
+};
 use bevy::{asset::AssetLoader, asset::LoadContext, asset::io::Reader, prelude::*};
 use futures_lite::AsyncReadExt;
 use serde::Deserialize;
@@ -13,6 +14,10 @@ pub struct Level {
     pub switches: Vec<SwitchData>,
     pub spawners: Vec<SpawnerData>,
     pub signals: Vec<SignalData>,
+    #[serde(default)]
+    pub sections: Vec<SectionData>,
+    #[serde(default)]
+    pub stations: Vec<StationData>,
     pub background: HexColor,
 }
 
@@ -78,6 +83,36 @@ pub struct SignalData {
     pub offset_m: f64,
     pub name: String,
     pub direction: Direction,
+    #[serde(default)]
+    pub signal_type: SignalType,
+}
+
+#[derive(Deserialize, Reflect)]
+pub struct SectionData {
+    pub id: SectionId,
+    pub blocks: Vec<BlockId>,
+}
+
+#[derive(Deserialize, Reflect, Clone)]
+pub struct SwitchSetting {
+    pub switch_id: SwitchId,
+    pub position: SwitchPosition,
+}
+
+#[derive(Deserialize, Reflect)]
+pub struct RouteData {
+    pub id: RouteId,
+    pub signal: SignalId,
+    pub sections: Vec<SectionId>,
+    #[serde(default)]
+    pub switches: Vec<SwitchSetting>,
+}
+
+#[derive(Deserialize, Reflect)]
+pub struct StationData {
+    pub id: StationId,
+    pub name: String,
+    pub routes: Vec<RouteData>,
 }
 
 pub struct LevelPlugin;

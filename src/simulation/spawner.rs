@@ -2,8 +2,7 @@ use crate::assets::{AssetHandles, LoadingState};
 use crate::audio::AudioEvent;
 use crate::common::{BlockId, Direction, TrainId};
 use crate::level::{Level, SpawnerKind};
-use crate::simulation::block::{BlockMap, TrackPoint};
-use crate::simulation::messages::{BlockUpdate, BlockUpdateState, SignalUpdate, SignalUpdateState};
+use crate::simulation::block::{BlockMap, BlockUpdate, BlockUpdateState, SignalUpdate, SignalUpdateState, TrackPoint};
 use crate::simulation::signal::SignalAspect;
 use crate::simulation::train::{RailVehicle, TrainDespawnRequest, TrainSpawnRequest, get_random_train_number};
 use bevy::prelude::*;
@@ -268,5 +267,7 @@ fn spawn_requests(
             direction: spawner.direction,
             vehicles,
         });
+
+        commands.trigger(AudioEvent::beep());
     }
 }

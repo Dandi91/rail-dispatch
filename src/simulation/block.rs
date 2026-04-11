@@ -1,16 +1,137 @@
 use crate::assets::{AssetHandles, LoadingState};
 use crate::common::LampId;
-use crate::common::{BlockId, Direction, TrainId};
+use crate::common::{BlockId, Direction, SignalId, SwitchId, SwitchPosition, TrainId};
 use crate::level::{BlockData, Level};
-use crate::simulation::messages::{BlockUpdate, BlockUpdateState, LampUpdate, SignalUpdate, SignalUpdateState};
 use crate::simulation::signal::{SignalAspect, SignalMap, TrackSignal};
 use crate::simulation::sparse_vec::{Chunkable, SparseVec};
-use crate::simulation::switch::Switch;
+use crate::simulation::station::{Switch, SwitchUpdate};
 use arrayvec::ArrayVec;
 use bevy::prelude::*;
 use itertools::Itertools;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Formatter;
+use std::ops::Not;
+
+#[derive(Copy, Clone)]
+pub enum BlockUpdateState {
+    Occupied,
+    Freed,
+}
+
+impl Not for BlockUpdateState {
+    type Output = Self;
+    fn not(self) -> Self::Output {
+        match self {
+            BlockUpdateState::Occupied => BlockUpdateState::Freed,
+            BlockUpdateState::Freed => BlockUpdateState::Occupied,
+        }
+    }
+}
+
+#[derive(Message)]
+pub struct BlockUpdate {
+    pub block_id: BlockId,
+    pub train_id: TrainId,
+    pub state: BlockUpdateState,
+}
+
+impl BlockUpdate {
+    pub fn occupied(block_id: BlockId, train_id: TrainId) -> Self {
+        BlockUpdate {
+            block_id,
+            train_id,
+            state: BlockUpdateState::Occupied,
+        }
+    }
+
+    pub fn freed(block_id: BlockId, train_id: TrainId) -> Self {
+        BlockUpdate {
+            block_id,
+            train_id,
+            state: BlockUpdateState::Freed,
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+pub enum LampUpdateState {
+    On,
+    Off,
+    Pending,
+}
+
+#[derive(Message)]
+pub struct LampUpdate {
+    pub lamp_id: LampId,
+    pub state: LampUpdateState,
+}
+
+impl LampUpdate {
+    pub fn from_block_state(update_state: BlockUpdateState, lamp_id: LampId) -> Self {
+        match update_state {
+            BlockUpdateState::Occupied => Self::on(lamp_id),
+            BlockUpdateState::Freed => Self::off(lamp_id),
+        }
+    }
+
+    pub fn from_signal_aspect(aspect: SignalAspect, lamp_id: LampId) -> Self {
+        Self {
+            lamp_id,
+            state: match aspect {
+                SignalAspect::Unrestricting => LampUpdateState::On,
+                SignalAspect::Restricting => LampUpdateState::Pending,
+                SignalAspect::Forbidding => LampUpdateState::Off,
+            },
+        }
+    }
+
+    pub fn on(lamp_id: LampId) -> Self {
+        LampUpdate {
+            lamp_id,
+            state: LampUpdateState::On,
+        }
+    }
+
+    pub fn off(lamp_id: LampId) -> Self {
+        LampUpdate {
+            lamp_id,
+            state: LampUpdateState::Off,
+        }
+    }
+
+    pub fn pending(lamp_id: LampId) -> Self {
+        LampUpdate {
+            lamp_id,
+            state: LampUpdateState::Pending,
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+pub enum SignalUpdateState {
+    /// Update caused by the change of the guarded block state
+    BlockChange(BlockUpdateState),
+    /// Update caused by the change of the next signal state
+    SignalPropagation(SignalAspect),
+    /// Manual override, e.g. from route activation
+    Manual(SignalAspect),
+}
+
+#[derive(Message, Clone)]
+pub struct SignalUpdate {
+    pub signal_id: SignalId,
+    pub state: SignalUpdateState,
+}
+
+impl SignalUpdate {
+    pub fn new(signal_id: SignalId, state: SignalUpdateState) -> Self {
+        Self { signal_id, state }
+    }
+
+    pub fn from_block_change(signal_id: SignalId, state: BlockUpdateState) -> Self {
+        Self::new(signal_id, SignalUpdateState::BlockChange(state))
+    }
+}
 
 #[derive(Default)]
 struct BlockTracker {
@@ -101,6 +222,38 @@ impl BlockMap {
         }
     }
 
+    fn process_switch_updates(&mut self, switch_updates: &mut MessageReader<SwitchUpdate>) {
+        for update in switch_updates.read() {
+            self.set_switch_position(update.switch_id, update.position);
+        }
+    }
+
+    fn set_switch_position(&mut self, switch_id: SwitchId, position: SwitchPosition) {
+        let switch = self.switches.get_mut(switch_id).expect("invalid switch ID");
+        if switch.position == position {
+            return;
+        }
+        switch.position = position;
+        let (base, straight, side, direction) = (switch.base, switch.straight, switch.side, switch.direction);
+        let (active_leg, inactive_leg) = if position == SwitchPosition::Straight {
+            (straight, side)
+        } else {
+            (side, straight)
+        };
+        match direction {
+            Direction::Even => {
+                self.blocks.get_mut(base).expect("invalid block").next = Some(active_leg);
+                self.blocks.get_mut(active_leg).expect("invalid block").prev = Some(base);
+                self.blocks.get_mut(inactive_leg).expect("invalid block").prev = None;
+            }
+            Direction::Odd => {
+                self.blocks.get_mut(base).expect("invalid block").prev = Some(active_leg);
+                self.blocks.get_mut(active_leg).expect("invalid block").next = Some(base);
+                self.blocks.get_mut(inactive_leg).expect("invalid block").next = None;
+            }
+        }
+    }
+
     fn process_block_updates(
         &mut self,
         block_updates: &mut MessageReader<BlockUpdate>,
@@ -134,9 +287,11 @@ impl BlockMap {
         let mut queue = VecDeque::from_iter(signal_updates.read().cloned());
         while let Some(update) = queue.pop_front() {
             let signal = self.signals.get(update.signal_id).expect("invalid signal ID");
+            let is_closed_manual = signal.is_closed_manual();
             let aspect = match update.state {
                 SignalUpdateState::BlockChange(block_update) => match block_update {
                     BlockUpdateState::Occupied => SignalAspect::Forbidding,
+                    BlockUpdateState::Freed if is_closed_manual => SignalAspect::Forbidding,
                     BlockUpdateState::Freed => {
                         if let Some((next, _)) = self.lookup_signal_forward(&signal.position, signal.direction) {
                             next.speed_ctrl.aspect.chain()
@@ -145,6 +300,7 @@ impl BlockMap {
                         }
                     }
                 },
+                SignalUpdateState::SignalPropagation(_) if is_closed_manual => SignalAspect::Forbidding,
                 SignalUpdateState::SignalPropagation(next_signal_aspect) => {
                     if self.is_signal_free(signal) {
                         next_signal_aspect.chain()
@@ -152,6 +308,7 @@ impl BlockMap {
                         SignalAspect::Forbidding
                     }
                 }
+                SignalUpdateState::Manual(aspect) => aspect,
             };
 
             if aspect != signal.speed_ctrl.aspect {
@@ -306,7 +463,7 @@ impl BlockMap {
 pub struct Block {
     pub id: BlockId,
     pub length_m: f64,
-    lamp_id: LampId,
+    pub lamp_id: LampId,
     prev: Option<BlockId>,
     next: Option<BlockId>,
 }
@@ -418,10 +575,15 @@ pub struct MapPlugin;
 
 impl Plugin for MapPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnExit(LoadingState::Loading), (setup, init).chain())
+        app.add_message::<BlockUpdate>()
+            .add_message::<LampUpdate>()
+            .add_message::<SignalUpdate>()
+            .add_systems(OnExit(LoadingState::Loading), (setup, init).chain())
             .add_systems(
                 Update,
-                (block_updates, signal_updates).run_if(in_state(LoadingState::Instantiated)),
+                (switch_updates, block_updates, signal_updates)
+                    .chain()
+                    .run_if(in_state(LoadingState::Instantiated)),
             );
     }
 }
@@ -455,6 +617,10 @@ fn signal_updates(
     mut lamp_updates: MessageWriter<LampUpdate>,
 ) {
     block_map.process_signal_updates(&mut signal_updates, &mut lamp_updates);
+}
+
+fn switch_updates(mut block_map: ResMut<BlockMap>, mut switch_updates: MessageReader<SwitchUpdate>) {
+    block_map.process_switch_updates(&mut switch_updates);
 }
 
 #[cfg(test)]

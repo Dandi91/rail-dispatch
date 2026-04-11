@@ -1,7 +1,6 @@
 use crate::assets::LoadingState;
 use crate::common::{Direction, SpeedConv, TrainId};
-use crate::simulation::block::{BlockMap, TrackPoint};
-use crate::simulation::messages::BlockUpdate;
+use crate::simulation::block::{BlockMap, BlockUpdate, TrackPoint};
 use crate::simulation::signal::SpeedLimit;
 use bevy::prelude::*;
 use std::collections::HashMap;

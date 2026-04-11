@@ -19,8 +19,8 @@ use display::DisplayPlugin;
 use dropdown_menu::DropdownPlugin;
 use level::LevelPlugin;
 use simulation::block::MapPlugin;
-use simulation::messages::MessagingPlugin;
 use simulation::spawner::SpawnerPlugin;
+use simulation::station::StationPlugin;
 use simulation::train::TrainPlugin;
 use time_controls::TimeControlsPlugin;
 
@@ -59,12 +59,12 @@ fn main() {
             LevelPlugin,
             AssetLoadingPlugin,
             TimeControlsPlugin,
-            MessagingPlugin,
             DisplayPlugin,
             AudioPlugin,
             TrainPlugin,
             SpawnerPlugin,
             MapPlugin,
+            StationPlugin,
         ))
         .run();
 }

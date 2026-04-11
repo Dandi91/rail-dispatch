@@ -1,3 +1,4 @@
+use bevy::ecs::system::{StaticSystemParam, SystemParam, SystemParamItem};
 use bevy::input::keyboard::Key;
 use bevy::prelude::*;
 use std::ops::DerefMut;
@@ -15,12 +16,14 @@ pub struct ContextMenu {
 
 pub trait DropDownMenu: Component + Sized {
     type Event<'a>: EntityEvent<Trigger<'a>: Default>;
+    type Context: SystemParam + 'static;
 
     fn create_event(&self, entity: Entity) -> Self::Event<'_>;
 
     fn get_label(&self) -> impl Into<String>;
 
-    fn list_available_items() -> impl IntoIterator<Item = Self>;
+    fn list_available_items(target: Entity, ctx: &mut SystemParamItem<Self::Context>)
+    -> impl IntoIterator<Item = Self>;
 
     fn key_filter(_: Res<ButtonInput<Key>>) -> bool {
         true
@@ -29,6 +32,7 @@ pub trait DropDownMenu: Component + Sized {
     fn on_entity_click(
         event: On<Pointer<Click>>,
         keyboard_input: Res<ButtonInput<Key>>,
+        mut ctx: StaticSystemParam<Self::Context>,
         mut menu: Single<(Entity, &mut Visibility, &mut Node, &mut ContextMenu)>,
         mut commands: Commands,
     ) {
@@ -36,9 +40,13 @@ pub trait DropDownMenu: Component + Sized {
             return;
         }
 
+        let items: Vec<Self> = Self::list_available_items(event.entity, &mut *ctx)
+            .into_iter()
+            .collect();
+
         let (entity, vis, node, context_menu) = menu.deref_mut();
         commands.entity(*entity).despawn_children().with_children(|p| {
-            for item in Self::list_available_items() {
+            for item in items {
                 let label = Text::new(item.get_label());
                 p.spawn((
                     ContextMenuItem,

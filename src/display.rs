@@ -1,11 +1,12 @@
 use crate::assets::{AssetHandles, LoadingState};
-use crate::common::{BlockId, LampId};
+use crate::common::{BlockId, LampId, RouteId};
 use crate::dropdown_menu::DropDownMenu;
 use crate::level::{LampData, Level, SpawnerData, SpawnerKind};
-use crate::simulation::block::BlockMap;
-use crate::simulation::messages::{LampUpdate, LampUpdateState};
+use crate::simulation::block::{BlockMap, LampUpdate, LampUpdateState};
 use crate::simulation::spawner::{SpawnRequest, SpawnTrainType};
+use crate::simulation::station::RouteActivationRequest;
 use crate::simulation::train::TrainDespawnRequest;
+use bevy::ecs::system::{SystemParam, SystemParamItem};
 use bevy::input::keyboard::Key;
 use bevy::prelude::*;
 use itertools::Itertools;
@@ -16,6 +17,12 @@ const LAMP_COLOR_GRAY: Color = Color::srgba_u8(0x55, 0x55, 0x55, 0xFF);
 const LAMP_COLOR_YELLOW: Color = Color::srgba_u8(0xFF, 0xFF, 0x40, 0xFF);
 const LAMP_COLOR_RED: Color = Color::srgba_u8(0xFF, 0x20, 0x20, 0xFF);
 const LAMP_COLOR_GREEN: Color = Color::srgba_u8(0x00, 0xFF, 0x00, 0xFF);
+
+#[derive(Component)]
+enum LampKind {
+    Block,
+    Signal,
+}
 
 #[derive(Component)]
 #[require(Pickable)]
@@ -29,7 +36,7 @@ fn get_lamp_bundle(lamp: &LampData) -> impl Bundle {
     };
 
     (
-        Lamp(lamp.id),
+        Lamp(lamp.id).bundle(),
         UiTransform { rotation, ..default() },
         Node {
             position_type: PositionType::Absolute,
@@ -45,10 +52,17 @@ fn get_lamp_bundle(lamp: &LampData) -> impl Bundle {
 
 impl Lamp {
     fn get_base_color(&self) -> Color {
+        match self.get_kind() {
+            LampKind::Block => LAMP_COLOR_RED,
+            LampKind::Signal => LAMP_COLOR_GREEN,
+        }
+    }
+
+    fn get_kind(&self) -> LampKind {
         if self.0 >= 100 {
-            LAMP_COLOR_GREEN
+            LampKind::Signal
         } else {
-            LAMP_COLOR_RED
+            LampKind::Block
         }
     }
 
@@ -58,6 +72,11 @@ impl Lamp {
             LampUpdateState::Off => LAMP_COLOR_GRAY,
             LampUpdateState::Pending => LAMP_COLOR_YELLOW,
         }
+    }
+
+    fn bundle(self) -> impl Bundle {
+        let kind = self.get_kind();
+        (self, kind)
     }
 }
 
@@ -112,6 +131,7 @@ enum LampMenu {
 
 impl DropDownMenu for LampMenu {
     type Event<'a> = LampMenuEvent;
+    type Context = ();
 
     fn create_event(&self, entity: Entity) -> Self::Event<'_> {
         LampMenuEvent { entity, action: *self }
@@ -125,8 +145,8 @@ impl DropDownMenu for LampMenu {
         }
     }
 
-    fn list_available_items() -> impl IntoIterator<Item = Self> {
-        vec![LampMenu::DebugOn, LampMenu::DebugOff, LampMenu::DespawnTrain]
+    fn list_available_items<'w, 's>(_: Entity, _: &mut ()) -> impl IntoIterator<Item = Self> {
+        [LampMenu::DebugOn, LampMenu::DebugOff, LampMenu::DespawnTrain]
     }
 
     fn key_filter(keyboard_input: Res<ButtonInput<Key>>) -> bool {
@@ -149,6 +169,7 @@ enum SpawnerMenu {
 
 impl DropDownMenu for SpawnerMenu {
     type Event<'a> = SpawnerMenuEvent;
+    type Context = ();
 
     fn create_event(&self, entity: Entity) -> Self::Event<'_> {
         SpawnerMenuEvent { entity, action: *self }
@@ -162,12 +183,70 @@ impl DropDownMenu for SpawnerMenu {
         }
     }
 
-    fn list_available_items() -> impl IntoIterator<Item = Self> {
-        vec![
+    fn list_available_items<'w, 's>(_: Entity, _: &mut ()) -> impl IntoIterator<Item = Self> {
+        [
             SpawnerMenu::SpawnCargo,
             SpawnerMenu::SpawnPassenger,
             SpawnerMenu::SpawnLocoOnly,
         ]
+    }
+}
+
+#[derive(EntityEvent)]
+struct SignalRouteMenuEvent {
+    entity: Entity,
+    route_id: RouteId,
+}
+
+#[derive(Component, Clone, Copy)]
+struct SignalRouteMenu(RouteId);
+
+#[derive(SystemParam)]
+struct SignalRouteContext<'w, 's> {
+    handles: Res<'w, AssetHandles>,
+    levels: Res<'w, Assets<Level>>,
+    lamps: Query<'w, 's, &'static Lamp>,
+}
+
+impl DropDownMenu for SignalRouteMenu {
+    type Event<'a> = SignalRouteMenuEvent;
+    type Context = SignalRouteContext<'static, 'static>;
+
+    fn create_event(&self, entity: Entity) -> Self::Event<'_> {
+        SignalRouteMenuEvent {
+            entity,
+            route_id: self.0,
+        }
+    }
+
+    fn get_label(&self) -> impl Into<String> {
+        format!("Open route {}", self.0)
+    }
+
+    fn list_available_items(
+        target: Entity,
+        ctx: &mut SystemParamItem<Self::Context>,
+    ) -> impl IntoIterator<Item = Self> {
+        let mut items = Vec::new();
+        let Ok(lamp) = ctx.lamps.get(target) else {
+            return items;
+        };
+        let Some(level) = ctx.levels.get(&ctx.handles.level) else {
+            return items;
+        };
+        let Some(signal) = level.signals.iter().find(|s| s.lamp_id == lamp.0) else {
+            return items;
+        };
+        for route in level.stations.iter().flat_map(|s| s.routes.iter()) {
+            if route.signal == signal.id {
+                items.push(SignalRouteMenu(route.id));
+            }
+        }
+        items
+    }
+
+    fn key_filter(keyboard_input: Res<ButtonInput<Key>>) -> bool {
+        !keyboard_input.pressed(Key::Control)
     }
 }
 
@@ -189,6 +268,7 @@ fn startup(mut commands: Commands) {
     commands.spawn(Camera2d);
     commands.add_observer(on_signal_action);
     commands.add_observer(on_spawner_action);
+    commands.add_observer(on_signal_route_action);
     commands.add_observer(on_setup_complete);
 }
 
@@ -233,6 +313,14 @@ fn setup(
         });
 
     LampMenu::register(&mut commands, mapper.values().cloned());
+
+    let signal_lamp_entities: Vec<Entity> = mapper
+        .iter()
+        .filter(|&(&lamp_id, _)| lamp_id >= 100)
+        .map(|(_, &entity)| entity)
+        .collect();
+    SignalRouteMenu::register(&mut commands, signal_lamp_entities);
+
     commands.trigger(LevelSetupComplete);
 }
 
@@ -293,13 +381,13 @@ fn on_signal_action(
                 }
             }
         }
-        debug!(
-            "Used '{}' on lamp ID {} ({:?})",
-            event.action.get_label().into(),
-            lamp.0,
-            event.entity
-        );
     }
+}
+
+fn on_signal_route_action(event: On<SignalRouteMenuEvent>, mut requests: MessageWriter<RouteActivationRequest>) {
+    requests.write(RouteActivationRequest {
+        route_id: event.route_id,
+    });
 }
 
 fn lamp_updates(
