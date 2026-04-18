@@ -14,24 +14,24 @@ pub struct AudioEvent {
 }
 
 impl AudioEvent {
+    fn new(kind: AudioKind) -> Self {
+        AudioEvent { kind }
+    }
+
     pub fn beep() -> Self {
-        AudioEvent { kind: AudioKind::Beep }
+        AudioEvent::new(AudioKind::Beep)
     }
 
     pub fn error() -> Self {
-        AudioEvent { kind: AudioKind::Error }
+        AudioEvent::new(AudioKind::Error)
     }
 
     pub fn message() -> Self {
-        AudioEvent {
-            kind: AudioKind::Message,
-        }
+        AudioEvent::new(AudioKind::Message)
     }
 
     pub fn notification() -> Self {
-        AudioEvent {
-            kind: AudioKind::Notification,
-        }
+        AudioEvent::new(AudioKind::Notification)
     }
 }
 

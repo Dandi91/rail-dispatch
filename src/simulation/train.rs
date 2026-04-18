@@ -297,6 +297,12 @@ pub struct TrainDespawnRequest {
     pub id: TrainId,
 }
 
+impl From<TrainId> for TrainDespawnRequest {
+    fn from(id: TrainId) -> Self {
+        TrainDespawnRequest { id }
+    }
+}
+
 #[derive(Message, Default)]
 pub struct TrainSpawnRequest {
     pub number: String,
@@ -318,28 +324,11 @@ impl Plugin for TrainPlugin {
             .init_resource::<TrainMapper>()
             .add_message::<TrainSpawnRequest>()
             .add_message::<TrainDespawnRequest>()
-            .add_systems(Update, keyboard_handling)
             .add_systems(
                 Update,
                 (spawn_trains, despawn_trains).run_if(in_state(LoadingState::Instantiated)),
             )
             .add_systems(FixedUpdate, update.run_if(in_state(LoadingState::Instantiated)));
-    }
-}
-
-fn keyboard_handling(
-    keyboard_input: Res<ButtonInput<KeyCode>>,
-    query: Query<&Train>,
-    mut spawn_requests: MessageWriter<TrainSpawnRequest>,
-    mut despawn_requests: MessageWriter<TrainDespawnRequest>,
-) {
-    if keyboard_input.just_pressed(KeyCode::KeyG) {
-        spawn_requests.write(debug_spawn_request());
-    }
-    if keyboard_input.just_pressed(KeyCode::KeyH) {
-        if let Some(train) = query.iter().min_by_key(|t| t.id) {
-            despawn_requests.write(TrainDespawnRequest { id: train.id });
-        }
     }
 }
 
@@ -409,24 +398,6 @@ fn spawn_trains(
             })
             .id();
         mapper.insert(train_id, entity);
-    }
-}
-
-fn debug_spawn_request() -> TrainSpawnRequest {
-    let mut vehicles: Vec<RailVehicle> = Vec::with_capacity(70);
-    vehicles.extend([RailVehicle::new_locomotive(138_000.0, 18.15, 2250.0, 375.0); 2]);
-    vehicles.extend([RailVehicle::new_car(24_000.0, 15.0, 70_000.0); 60]);
-
-    TrainSpawnRequest {
-        number: get_random_train_number(),
-        top_speed_kmh: 80.0,
-        position: TrackPoint {
-            block_id: 2,
-            offset_m: 600.0,
-        },
-        direction: Direction::Even,
-        vehicles,
-        ..Default::default()
     }
 }
 

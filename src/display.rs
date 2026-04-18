@@ -2,10 +2,13 @@ use crate::assets::{AssetHandles, LoadingState};
 use crate::common::{BlockId, LampId};
 use crate::dropdown_menu::DropDownMenu;
 use crate::level::{LampData, Level, SpawnerData, SpawnerKind};
+use crate::simulation::block::BlockMap;
 use crate::simulation::messages::{LampUpdate, LampUpdateState};
 use crate::simulation::spawner::{SpawnRequest, SpawnTrainType};
+use crate::simulation::train::TrainDespawnRequest;
 use bevy::input::keyboard::Key;
 use bevy::prelude::*;
+use itertools::Itertools;
 use std::collections::HashMap;
 
 pub const DEFAULT_LAMP_HEIGHT: f32 = 7.0;
@@ -104,6 +107,7 @@ struct LampMenuEvent {
 enum LampMenu {
     DebugOn,
     DebugOff,
+    DespawnTrain,
 }
 
 impl DropDownMenu for LampMenu {
@@ -117,11 +121,12 @@ impl DropDownMenu for LampMenu {
         match self {
             LampMenu::DebugOn => "Debug Switch Lamp On",
             LampMenu::DebugOff => "Debug Switch Lamp Off",
+            LampMenu::DespawnTrain => "Debug Despawn Train in Block",
         }
     }
 
     fn list_available_items() -> impl IntoIterator<Item = Self> {
-        vec![LampMenu::DebugOn, LampMenu::DebugOff]
+        vec![LampMenu::DebugOn, LampMenu::DebugOff, LampMenu::DespawnTrain]
     }
 
     fn key_filter(keyboard_input: Res<ButtonInput<Key>>) -> bool {
@@ -267,7 +272,13 @@ fn on_spawner_out(event: On<Pointer<Out>>, mut query: Query<&mut BackgroundColor
     }
 }
 
-fn on_signal_action(event: On<LampMenuEvent>, query: Query<&Lamp>, mut lamp_updates: MessageWriter<LampUpdate>) {
+fn on_signal_action(
+    event: On<LampMenuEvent>,
+    query: Query<&Lamp>,
+    block_map: If<Res<BlockMap>>,
+    mut lamp_updates: MessageWriter<LampUpdate>,
+    mut despawn_requests: MessageWriter<TrainDespawnRequest>,
+) {
     if let Ok(lamp) = query.get(event.entity) {
         match event.action {
             LampMenu::DebugOn => {
@@ -275,6 +286,11 @@ fn on_signal_action(event: On<LampMenuEvent>, query: Query<&Lamp>, mut lamp_upda
             }
             LampMenu::DebugOff => {
                 lamp_updates.write(LampUpdate::off(lamp.0));
+            }
+            LampMenu::DespawnTrain => {
+                if let (_, Some(trains)) = block_map.get_lamp_info(lamp.0) {
+                    despawn_requests.write_batch(trains.iter().cloned().map_into());
+                }
             }
         }
         debug!(

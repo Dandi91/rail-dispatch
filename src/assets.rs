@@ -98,10 +98,10 @@ fn setup_assets(mut commands: Commands, asset_server: Res<AssetServer>) {
         board: asset_server.load_acquire("board.png", guard.clone()),
     });
     commands.insert_resource(SoundHandles {
-        beep: asset_server.load_acquire("sounds/beep.wav", guard.clone()),
-        error: asset_server.load_acquire("sounds/error.wav", guard.clone()),
-        message: asset_server.load_acquire("sounds/message.wav", guard.clone()),
-        notification: asset_server.load_acquire("sounds/notification.wav", guard.clone()),
+        beep: asset_server.load("sounds/beep.wav"),
+        error: asset_server.load("sounds/error.wav"),
+        message: asset_server.load("sounds/message.wav"),
+        notification: asset_server.load("sounds/notification.wav"),
     });
 
     let future = barrier.wait_async();
