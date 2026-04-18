@@ -1,4 +1,5 @@
 mod assets;
+mod audio;
 mod common;
 mod debug_overlay;
 mod display;
@@ -8,6 +9,7 @@ mod simulation;
 mod time_controls;
 
 use assets::AssetLoadingPlugin;
+use audio::AudioPlugin;
 use bevy::asset::AssetPlugin;
 use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin, FrameTimeGraphConfig};
 use bevy::prelude::*;
@@ -59,6 +61,7 @@ fn main() {
             TimeControlsPlugin,
             MessagingPlugin,
             DisplayPlugin,
+            AudioPlugin,
             TrainPlugin,
             SpawnerPlugin,
             MapPlugin,

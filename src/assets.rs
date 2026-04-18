@@ -73,6 +73,14 @@ pub struct AssetHandles {
     pub board: Handle<Image>,
 }
 
+#[derive(Resource)]
+pub struct SoundHandles {
+    pub beep: Handle<AudioSource>,
+    pub error: Handle<AudioSource>,
+    pub message: Handle<AudioSource>,
+    pub notification: Handle<AudioSource>,
+}
+
 pub struct AssetLoadingPlugin;
 
 impl Plugin for AssetLoadingPlugin {
@@ -88,6 +96,12 @@ fn setup_assets(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.insert_resource(AssetHandles {
         level: asset_server.load_acquire("level.toml", guard.clone()),
         board: asset_server.load_acquire("board.png", guard.clone()),
+    });
+    commands.insert_resource(SoundHandles {
+        beep: asset_server.load_acquire("sounds/beep.wav", guard.clone()),
+        error: asset_server.load_acquire("sounds/error.wav", guard.clone()),
+        message: asset_server.load_acquire("sounds/message.wav", guard.clone()),
+        notification: asset_server.load_acquire("sounds/notification.wav", guard.clone()),
     });
 
     let future = barrier.wait_async();

@@ -1,4 +1,5 @@
 use crate::assets::{AssetHandles, LoadingState};
+use crate::audio::AudioEvent;
 use crate::common::{BlockId, Direction, TrainId};
 use crate::level::{Level, SpawnerKind};
 use crate::simulation::block::{BlockMap, TrackPoint};
@@ -232,12 +233,14 @@ fn spawn_requests(
     spawner_mapper: Res<SpawnerMapper>,
     query: Query<&Spawner>,
     mut spawn_requests: MessageWriter<TrainSpawnRequest>,
+    mut commands: Commands,
 ) {
     if let Some(entity) = spawner_mapper.get(&request.block_id) {
         let spawner = query.get(*entity).expect("invalid spawner entity");
 
         if spawner.is_busy() {
             warn!("Spawner {} is currently occupied", spawner.block_id);
+            commands.trigger(AudioEvent::error());
             return;
         }
 
