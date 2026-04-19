@@ -261,7 +261,7 @@ fn spawn_requests(
         }
 
         spawn_requests.write(TrainSpawnRequest {
-            number: get_random_train_number(),
+            number: get_random_train_number(spawner.direction),
             top_speed_kmh: 80.0,
             actual_speed_kmh: spawner.speed_kmh,
             position: spawner.spawn_point.clone(),

@@ -401,6 +401,11 @@ fn spawn_trains(
     }
 }
 
-pub fn get_random_train_number() -> String {
-    rand::random_range(1000..=9999).to_string()
+pub fn get_random_train_number(direction: Direction) -> String {
+    let num = rand::random_range(1000..=9999);
+    match num % 2 {
+        0 if direction == Direction::Odd => (num + 1).to_string(),
+        1 if direction == Direction::Even => (num - 1).to_string(),
+        _ => num.to_string(),
+    }
 }
