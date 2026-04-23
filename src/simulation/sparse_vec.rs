@@ -1,4 +1,5 @@
 use itertools::Itertools;
+use std::ops::{Index, IndexMut};
 
 #[cfg_attr(test, derive(Debug))]
 struct Chunk {
@@ -124,6 +125,20 @@ impl<T: Chunkable> Default for SparseVec<T> {
             chunks: Vec::new(),
             items: Vec::new(),
         }
+    }
+}
+
+impl<T: Chunkable> Index<u32> for SparseVec<T> {
+    type Output = T;
+
+    fn index(&self, index: u32) -> &Self::Output {
+        self.get(index).expect("invalid container index")
+    }
+}
+
+impl<T: Chunkable> IndexMut<u32> for SparseVec<T> {
+    fn index_mut(&mut self, index: u32) -> &mut Self::Output {
+        self.get_mut(index).expect("invalid container index")
     }
 }
 

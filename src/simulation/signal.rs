@@ -5,6 +5,7 @@ use crate::simulation::sparse_vec::{Chunkable, SparseVec};
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::fmt::Display;
+use std::ops::{Index, IndexMut};
 
 #[derive(Default)]
 pub struct SignalMap {
@@ -34,6 +35,20 @@ impl SignalMap {
     pub fn insert(&mut self, signal: TrackSignal) {
         self.map.insert((signal.position.block_id, signal.direction), signal.id);
         self.signals.insert(signal);
+    }
+}
+
+impl Index<u32> for SignalMap {
+    type Output = TrackSignal;
+
+    fn index(&self, index: u32) -> &Self::Output {
+        self.get(index).expect("invalid container index")
+    }
+}
+
+impl IndexMut<u32> for SignalMap {
+    fn index_mut(&mut self, index: u32) -> &mut Self::Output {
+        self.get_mut(index).expect("invalid container index")
     }
 }
 

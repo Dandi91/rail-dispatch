@@ -1,6 +1,6 @@
 use crate::assets::{AssetHandles, LoadingState};
 use crate::common::LampId;
-use crate::common::{BlockId, Direction, SignalId, SwitchId, SwitchPosition, TrainId};
+use crate::common::{BlockId, Direction, SignalId, SwitchPosition, TrainId};
 use crate::level::{BlockData, Level};
 use crate::simulation::signal::{SignalAspect, SignalMap, TrackSignal};
 use crate::simulation::sparse_vec::{Chunkable, SparseVec};
@@ -195,21 +195,20 @@ pub struct BlockMap {
 
 impl BlockMap {
     pub fn get_available_length(&self, point: &TrackPoint, direction: Direction) -> f64 {
-        let block = self.blocks.get(point.block_id).expect("block not found");
         if direction == Direction::Even {
-            block.length_m - point.offset_m
+            self.blocks[point.block_id].length_m - point.offset_m
         } else {
             point.offset_m
         }
     }
 
     pub fn get_next(&self, block_id: BlockId, direction: Direction) -> Option<&Block> {
-        let block = self.blocks.get(block_id).expect("block not found");
+        let block = &self.blocks[block_id];
         let next = match direction {
             Direction::Even => block.next?,
             Direction::Odd => block.prev?,
         };
-        Some(self.blocks.get(next).expect("block not found"))
+        Some(&self.blocks[next])
     }
 
     pub fn get_block(&self, block_id: BlockId) -> Option<&Block> {
@@ -224,33 +223,29 @@ impl BlockMap {
 
     fn process_switch_updates(&mut self, switch_updates: &mut MessageReader<SwitchUpdate>) {
         for update in switch_updates.read() {
-            self.set_switch_position(update.switch_id, update.position);
-        }
-    }
-
-    fn set_switch_position(&mut self, switch_id: SwitchId, position: SwitchPosition) {
-        let switch = self.switches.get_mut(switch_id).expect("invalid switch ID");
-        if switch.position == position {
-            return;
-        }
-        switch.position = position;
-        let (base, straight, side, direction) = (switch.base, switch.straight, switch.side, switch.direction);
-        let (active_leg, inactive_leg) = if position == SwitchPosition::Straight {
-            (straight, side)
-        } else {
-            (side, straight)
-        };
-        match direction {
-            Direction::Even => {
-                self.blocks.get_mut(base).expect("invalid block").next = Some(active_leg);
-                self.blocks.get_mut(active_leg).expect("invalid block").prev = Some(base);
-                self.blocks.get_mut(inactive_leg).expect("invalid block").prev = None;
+            let switch = &mut self.switches[update.switch_id];
+            if switch.position == update.position {
+                continue;
             }
-            Direction::Odd => {
-                self.blocks.get_mut(base).expect("invalid block").prev = Some(active_leg);
-                self.blocks.get_mut(active_leg).expect("invalid block").next = Some(base);
-                self.blocks.get_mut(inactive_leg).expect("invalid block").next = None;
-            }
+            switch.position = update.position;
+            let (base, straight, side, direction) = (switch.base, switch.straight, switch.side, switch.direction);
+            let (active_leg, inactive_leg) = if update.position == SwitchPosition::Straight {
+                (straight, side)
+            } else {
+                (side, straight)
+            };
+            match direction {
+                Direction::Even => {
+                    self.blocks[base].next = Some(active_leg);
+                    self.blocks[active_leg].prev = Some(base);
+                    self.blocks[inactive_leg].prev = None;
+                }
+                Direction::Odd => {
+                    self.blocks[base].prev = Some(active_leg);
+                    self.blocks[active_leg].next = Some(base);
+                    self.blocks[inactive_leg].next = None;
+                }
+            };
         }
     }
 
@@ -269,7 +264,7 @@ impl BlockMap {
             if !changed {
                 return;
             }
-            let block = self.blocks.get(update.block_id).expect("invalid block ID");
+            let block = &self.blocks[update.block_id];
             lamp_updates.write(LampUpdate::from_block_state(update.state, block.lamp_id));
             signal_updates.write_batch(
                 self.find_affected_signals(block, update.state)
@@ -286,7 +281,7 @@ impl BlockMap {
     ) {
         let mut queue = VecDeque::from_iter(signal_updates.read().cloned());
         while let Some(update) = queue.pop_front() {
-            let signal = self.signals.get(update.signal_id).expect("invalid signal ID");
+            let signal = &self.signals[update.signal_id];
             let is_closed_manual = signal.is_closed_manual();
             let aspect = match update.state {
                 SignalUpdateState::BlockChange(block_update) => match block_update {
@@ -318,8 +313,7 @@ impl BlockMap {
                     queue.push_back(SignalUpdate::new(prev.id, SignalUpdateState::SignalPropagation(aspect)));
                 }
 
-                let signal = self.signals.get_mut(update.signal_id).expect("invalid signal ID");
-                signal.change_aspect(aspect);
+                self.signals[update.signal_id].change_aspect(aspect);
             }
         }
     }
@@ -327,16 +321,12 @@ impl BlockMap {
     fn init(&mut self, block_updates: &mut MessageWriter<BlockUpdate>) {
         self.switches.iter().for_each(|switch| match switch.direction {
             Direction::Even => {
-                let base = self.blocks.get_mut(switch.base).expect("invalid block ID");
-                base.next = Some(switch.straight);
-                let side = self.blocks.get_mut(switch.straight).expect("invalid block ID");
-                side.prev = Some(switch.base);
+                self.blocks[switch.base].next = Some(switch.straight);
+                self.blocks[switch.straight].prev = Some(switch.base);
             }
             Direction::Odd => {
-                let base = self.blocks.get_mut(switch.base).expect("invalid block ID");
-                base.prev = Some(switch.straight);
-                let side = self.blocks.get_mut(switch.straight).expect("invalid block ID");
-                side.next = Some(switch.base);
+                self.blocks[switch.base].prev = Some(switch.straight);
+                self.blocks[switch.straight].next = Some(switch.base);
             }
         });
         block_updates.write_batch(self.blocks.iter().map(|block| BlockUpdate::freed(block.id, 0)));
@@ -406,13 +396,12 @@ impl BlockMap {
     }
 
     pub fn walk(&self, start: &TrackPoint, length_m: f64, direction: Direction) -> TrackWalker<'_> {
-        let block = self.blocks.get(start.block_id).expect("invalid block ID");
         TrackWalker {
             block_map: self,
             current_block_id: start.block_id,
             offset_m: start.offset_m,
             block_available_m: self.get_available_length(start, direction),
-            current_block_length_m: block.length_m,
+            current_block_length_m: self.blocks[start.block_id].length_m,
             length_m,
             direction,
         }
@@ -444,10 +433,8 @@ impl BlockMap {
         let switches: SparseVec<Switch> = level.switches.iter().map_into().collect();
 
         for conn in &level.connections {
-            let start = blocks.get_mut(conn.start).expect("start block not found");
-            start.next = Some(conn.end);
-            let end = blocks.get_mut(conn.end).expect("end block not found");
-            end.prev = Some(conn.start);
+            blocks[conn.start].next = Some(conn.end);
+            blocks[conn.end].prev = Some(conn.start);
         }
 
         BlockMap {

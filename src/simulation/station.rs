@@ -151,7 +151,7 @@ impl StationMap {
                 let blocks = r
                     .section_ids
                     .iter()
-                    .flat_map(|&sid| sections.get(sid).expect("invalid section id").blocks.iter().copied())
+                    .flat_map(|&sid| sections[sid].blocks.iter().copied())
                     .collect();
                 (r.id, blocks)
             })
@@ -191,7 +191,7 @@ impl StationMap {
         for update in block_updates.read() {
             if let Some(section_ids) = self.block_to_sections.get(&update.block_id) {
                 for &section_id in section_ids {
-                    let section = self.sections.get_mut(section_id).expect("invalid section id");
+                    let section = &mut self.sections[section_id];
                     match update.state {
                         BlockUpdateState::Occupied => {
                             section.occupied.insert(update.block_id);
@@ -214,14 +214,12 @@ impl StationMap {
             }
         }
         for (route_id, state) in route_updates {
-            let route = self.routes.get_mut(route_id).expect("invalid route index");
-            route.state = state;
+            self.routes[route_id].state = state;
         }
     }
 
     fn is_route_free(&self, route_id: RouteId) -> bool {
-        let route = self.routes.get(route_id).expect("invalid route index");
-        route
+        self.routes[route_id]
             .section_ids
             .iter()
             .all(|&sid| self.sections.get(sid).is_some_and(|s| s.is_free()))
@@ -237,7 +235,7 @@ impl StationMap {
         commands: &mut Commands,
     ) {
         for req in requests.read() {
-            let route = self.routes.get(req.route_id).expect("invalid route index");
+            let route = &self.routes[req.route_id];
             if route.state != RouteState::Inactive {
                 warn!("Route {} is already active", req.route_id);
                 commands.trigger(AudioEvent::error());
@@ -250,12 +248,10 @@ impl StationMap {
                 continue;
             }
 
-            let conflict = self.conflicting_routes.get(&req.route_id).is_some_and(|v| {
-                v.iter().any(|&rid| {
-                    let route = self.routes.get(rid).expect("invalid route id");
-                    route.state != RouteState::Inactive
-                })
-            });
+            let conflict = self
+                .conflicting_routes
+                .get(&req.route_id)
+                .is_some_and(|v| v.iter().any(|&rid| self.routes[rid].state != RouteState::Inactive));
             if conflict {
                 warn!("Route {} conflicts with other routes", req.route_id);
                 commands.trigger(AudioEvent::error());
@@ -274,11 +270,10 @@ impl StationMap {
                 SignalUpdateState::Manual(SignalAspect::Unrestricting),
             ));
 
-            let route = self.routes.get_mut(req.route_id).expect("invalid route index");
+            let route = &mut self.routes[req.route_id];
             route.state = RouteState::Active;
             route.section_ids.iter().for_each(|&sid| {
-                let section = self.sections.get_mut(sid).expect("invalid section id");
-                section.blocks.iter().for_each(|&block_id| {
+                self.sections[sid].blocks.iter().for_each(|&block_id| {
                     let block = block_map.get_block(block_id).expect("invalid block id");
                     lamp_updates.write(LampUpdate::pending(block.lamp_id));
                 });
