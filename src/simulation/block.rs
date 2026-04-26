@@ -226,9 +226,6 @@ impl BlockMap {
     fn process_switch_updates(&mut self, switch_updates: &mut MessageReader<SwitchUpdate>) {
         for update in switch_updates.read() {
             let switch = &mut self.switches[update.switch_id];
-            if switch.position == update.position {
-                continue;
-            }
             switch.position = update.position;
             let (base, straight, side, direction) = (switch.base, switch.straight, switch.side, switch.direction);
             let (active_leg, inactive_leg) = if update.position == SwitchPosition::Straight {
@@ -330,17 +327,16 @@ impl BlockMap {
         );
     }
 
-    fn init(&mut self, block_updates: &mut MessageWriter<BlockUpdate>) {
-        self.switches.iter().for_each(|switch| match switch.direction {
-            Direction::Even => {
-                self.blocks[switch.base].next = Some(switch.straight);
-                self.blocks[switch.straight].prev = Some(switch.base);
-            }
-            Direction::Odd => {
-                self.blocks[switch.base].prev = Some(switch.straight);
-                self.blocks[switch.straight].next = Some(switch.base);
-            }
-        });
+    fn init(
+        &mut self,
+        block_updates: &mut MessageWriter<BlockUpdate>,
+        switch_updates: &mut MessageWriter<SwitchUpdate>,
+    ) {
+        switch_updates.write_batch(
+            self.switches
+                .iter()
+                .map(|switch| SwitchUpdate::new(switch.id, switch.position)),
+        );
         block_updates.write_batch(self.blocks.iter().map(|block| BlockUpdate::freed(block.id, 0)));
     }
 
@@ -603,9 +599,10 @@ fn setup(handles: Res<AssetHandles>, levels: Res<Assets<Level>>, mut commands: C
 fn init(
     mut block_map: ResMut<BlockMap>,
     mut block_updates: MessageWriter<BlockUpdate>,
+    mut switch_updates: MessageWriter<SwitchUpdate>,
     mut next_loading_state: ResMut<NextState<LoadingState>>,
 ) {
-    block_map.init(&mut block_updates);
+    block_map.init(&mut block_updates, &mut switch_updates);
     next_loading_state.set(LoadingState::Instantiated);
 }
 
