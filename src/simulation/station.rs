@@ -1,8 +1,10 @@
 use crate::assets::{AssetHandles, LoadingState};
 use crate::audio::AudioEvent;
-use crate::common::{BlockId, Direction, RouteId, SectionId, SignalId, StationId, SwitchId, SwitchPosition};
+use crate::common::{BlockId, Direction, LampId, RouteId, SectionId, SignalId, StationId, SwitchId, SwitchPosition};
 use crate::level::{Level, SwitchData, SwitchSetting};
-use crate::simulation::block::{BlockMap, BlockUpdate, BlockUpdateState, LampUpdate, SignalUpdate, SignalUpdateState};
+use crate::simulation::block::{
+    BlockUpdate, BlockUpdateState, LampUpdate, SetPending, SignalUpdate, SignalUpdateState,
+};
 use crate::simulation::signal::SignalAspect;
 use crate::simulation::sparse_vec::{Chunkable, SparseVec};
 use bevy::prelude::*;
@@ -48,21 +50,23 @@ impl Chunkable for Switch {
     }
 }
 
-struct Section {
-    id: SectionId,
-    blocks: Vec<BlockId>,
-    occupied: HashSet<BlockId>,
-}
+#[derive(Default)]
+struct BusyTracker(HashSet<BlockId>);
 
-impl Section {
+impl BusyTracker {
     fn is_free(&self) -> bool {
-        self.occupied.is_empty()
+        self.0.is_empty()
     }
-}
 
-impl Chunkable for Section {
-    fn get_id(&self) -> u32 {
-        self.id
+    fn handle_update(&mut self, update: &BlockUpdate) {
+        match update.state {
+            BlockUpdateState::Occupied => {
+                self.0.insert(update.block_id);
+            }
+            BlockUpdateState::Freed => {
+                self.0.remove(&update.block_id);
+            }
+        }
     }
 }
 
@@ -77,16 +81,35 @@ enum RouteState {
     Used,
 }
 
+#[derive(Default)]
 struct Route {
     id: RouteId,
     signal_id: SignalId,
-    station_id: StationId,
     section_ids: Vec<SectionId>,
+    block_ids: Vec<BlockId>,
     switch_settings: Vec<SwitchSetting>,
+    tracker: BusyTracker,
     state: RouteState,
 }
 
 impl Chunkable for Route {
+    fn get_id(&self) -> u32 {
+        self.id
+    }
+}
+
+#[derive(Default)]
+struct Section {
+    id: SectionId,
+    blocks: Vec<BlockId>,
+    lamps: Vec<LampId>,
+    tracker: BusyTracker,
+    /// True while at least one route claiming this section is in `Active` or `Used` state.
+    /// Lamp updates fire only while this is true; otherwise the section is invisible.
+    active: bool,
+}
+
+impl Chunkable for Section {
     fn get_id(&self) -> u32 {
         self.id
     }
@@ -108,53 +131,64 @@ struct StationMap {
     stations: SparseVec<Station>,
     routes: SparseVec<Route>,
     sections: SparseVec<Section>,
-    block_to_sections: HashMap<BlockId, Vec<SectionId>>,
+    blocks_to_routes: HashMap<BlockId, Vec<RouteId>>,
+    blocks_to_sections: HashMap<BlockId, Vec<SectionId>>,
     conflicting_routes: HashMap<RouteId, Vec<RouteId>>,
 }
 
 impl StationMap {
     pub fn from_level(level: &Level) -> Self {
+        let block_lamps: HashMap<BlockId, LampId> = level.blocks.iter().map(|bd| (bd.id, bd.lamp_id)).collect();
+
         let sections: SparseVec<Section> = level
             .sections
             .iter()
             .map(|sd| Section {
                 id: sd.id,
                 blocks: sd.blocks.clone(),
-                occupied: HashSet::new(),
+                lamps: sd.blocks.iter().map(|bid| block_lamps[bid]).collect(),
+                ..Default::default()
             })
             .collect();
-
-        let mut block_to_sections: HashMap<BlockId, Vec<SectionId>> = HashMap::new();
-        for section in sections.iter() {
-            for &block_id in &section.blocks {
-                block_to_sections.entry(block_id).or_default().push(section.id);
-            }
-        }
 
         let routes: SparseVec<Route> = level
             .stations
             .iter()
-            .flat_map(|sd| sd.routes.iter().zip(std::iter::repeat(sd.id)))
-            .map(|(rd, s_id)| Route {
-                id: rd.id,
-                signal_id: rd.signal,
-                station_id: s_id,
-                section_ids: rd.sections.clone(),
-                switch_settings: rd.switches.clone(),
-                state: RouteState::Inactive,
-            })
-            .collect();
-
-        let route_blocks: HashMap<RouteId, HashSet<BlockId>> = routes
-            .iter()
-            .map(|r| {
-                let blocks = r
-                    .section_ids
+            .flat_map(|sd| sd.routes.iter())
+            .map(|rd| {
+                let block_ids: Vec<BlockId> = rd
+                    .sections
                     .iter()
                     .flat_map(|&sid| sections[sid].blocks.iter().copied())
                     .collect();
-                (r.id, blocks)
+                Route {
+                    id: rd.id,
+                    signal_id: rd.signal,
+                    section_ids: rd.sections.clone(),
+                    block_ids,
+                    switch_settings: rd.switches.clone(),
+                    ..Default::default()
+                }
             })
+            .collect();
+
+        let mut blocks_to_routes: HashMap<BlockId, Vec<RouteId>> = HashMap::new();
+        for route in &routes {
+            for &block_id in &route.block_ids {
+                blocks_to_routes.entry(block_id).or_default().push(route.id);
+            }
+        }
+
+        let mut blocks_to_sections: HashMap<BlockId, Vec<SectionId>> = HashMap::new();
+        for section in &sections {
+            for &block_id in &section.blocks {
+                blocks_to_sections.entry(block_id).or_default().push(section.id);
+            }
+        }
+
+        let route_blocks: HashMap<RouteId, HashSet<BlockId>> = routes
+            .iter()
+            .map(|r| (r.id, r.block_ids.iter().copied().collect()))
             .collect();
 
         let conflicting_routes: HashMap<RouteId, Vec<RouteId>> = route_blocks
@@ -182,56 +216,63 @@ impl StationMap {
             stations,
             routes,
             sections,
-            block_to_sections,
+            blocks_to_routes,
+            blocks_to_sections,
             conflicting_routes,
         }
     }
 
-    fn track_section_occupancy(&mut self, block_updates: &mut MessageReader<BlockUpdate>) {
+    fn track_route_state(
+        &mut self,
+        block_updates: &mut MessageReader<BlockUpdate>,
+        lamp_updates: &mut MessageWriter<LampUpdate>,
+    ) {
+        let mut recheck_route_ids = HashSet::new();
         for update in block_updates.read() {
-            if let Some(section_ids) = self.block_to_sections.get(&update.block_id) {
+            if let Some(route_ids) = self.blocks_to_routes.get(&update.block_id) {
+                for &route_id in route_ids {
+                    let route = &mut self.routes[route_id];
+                    route.tracker.handle_update(update);
+                    recheck_route_ids.insert(route_id);
+                }
+            }
+            if let Some(section_ids) = self.blocks_to_sections.get(&update.block_id) {
                 for &section_id in section_ids {
                     let section = &mut self.sections[section_id];
-                    match update.state {
-                        BlockUpdateState::Occupied => {
-                            section.occupied.insert(update.block_id);
-                        }
-                        BlockUpdateState::Freed => {
-                            section.occupied.remove(&update.block_id);
-                        }
+                    let was_free = section.tracker.is_free();
+                    section.tracker.handle_update(update);
+                    if section.active && was_free != section.tracker.is_free() {
+                        lamp_updates.write_batch(
+                            section
+                                .lamps
+                                .iter()
+                                .map(|&lamp_id| LampUpdate::from_block_state(update.state, lamp_id)),
+                        );
                     }
                 }
             }
         }
 
-        let mut route_updates = Vec::new();
-        for route in &self.routes {
-            let any_occupied = self.is_route_free(route.id);
+        for route_id in recheck_route_ids {
+            let route = &mut self.routes[route_id];
             match route.state {
-                RouteState::Active if any_occupied => route_updates.push((route.id, RouteState::Used)),
-                RouteState::Used if !any_occupied => route_updates.push((route.id, RouteState::Inactive)),
+                RouteState::Active if !route.tracker.is_free() => route.state = RouteState::Used,
+                RouteState::Used if route.tracker.is_free() => {
+                    route.state = RouteState::Inactive;
+                    for &section_id in &self.routes[route_id].section_ids {
+                        self.sections[section_id].active = false;
+                    }
+                }
                 _ => {}
-            }
+            };
         }
-        for (route_id, state) in route_updates {
-            self.routes[route_id].state = state;
-        }
-    }
-
-    fn is_route_free(&self, route_id: RouteId) -> bool {
-        self.routes[route_id]
-            .section_ids
-            .iter()
-            .all(|&sid| self.sections.get(sid).is_some_and(|s| s.is_free()))
     }
 
     fn handle_route_activation(
         &mut self,
-        block_map: &BlockMap,
         requests: &mut MessageReader<RouteActivationRequest>,
         signal_updates: &mut MessageWriter<SignalUpdate>,
         switch_updates: &mut MessageWriter<SwitchUpdate>,
-        lamp_updates: &mut MessageWriter<LampUpdate>,
         commands: &mut Commands,
     ) {
         for req in requests.read() {
@@ -242,7 +283,7 @@ impl StationMap {
                 continue;
             }
 
-            if !self.is_route_free(req.route_id) {
+            if !route.tracker.is_free() {
                 warn!("Route {} sections are occupied", req.route_id);
                 commands.trigger(AudioEvent::error());
                 continue;
@@ -270,15 +311,13 @@ impl StationMap {
                 SignalUpdateState::Manual(SignalAspect::Unrestricting),
             ));
 
+            for &section_id in &route.section_ids {
+                self.sections[section_id].active = true;
+            }
+
             let route = &mut self.routes[req.route_id];
             route.state = RouteState::Active;
-            route.section_ids.iter().for_each(|&sid| {
-                self.sections[sid].blocks.iter().for_each(|&block_id| {
-                    let block = block_map.get_block(block_id).expect("invalid block id");
-                    lamp_updates.write(LampUpdate::pending(block.lamp_id));
-                });
-            });
-
+            commands.trigger(SetPending(route.block_ids.clone()));
             commands.trigger(AudioEvent::beep());
         }
     }
@@ -296,7 +335,7 @@ impl Plugin for StationPlugin {
         app.add_systems(OnEnter(LoadingState::Instantiated), build_station_map)
             .add_systems(
                 Update,
-                (track_section_occupancy, handle_route_activation).run_if(in_state(LoadingState::Instantiated)),
+                (track_route_state, handle_route_activation).run_if(in_state(LoadingState::Instantiated)),
             )
             .add_message::<RouteActivationRequest>()
             .add_message::<SwitchUpdate>();
@@ -308,25 +347,20 @@ fn build_station_map(handles: Res<AssetHandles>, levels: Res<Assets<Level>>, mut
     commands.insert_resource(StationMap::from_level(level));
 }
 
-fn track_section_occupancy(mut station_map: ResMut<StationMap>, mut block_updates: MessageReader<BlockUpdate>) {
-    station_map.track_section_occupancy(&mut block_updates);
+fn track_route_state(
+    mut station_map: ResMut<StationMap>,
+    mut block_updates: MessageReader<BlockUpdate>,
+    mut lamp_updates: MessageWriter<LampUpdate>,
+) {
+    station_map.track_route_state(&mut block_updates, &mut lamp_updates);
 }
 
 fn handle_route_activation(
-    block_map: Res<BlockMap>,
     mut station_map: ResMut<StationMap>,
     mut requests: MessageReader<RouteActivationRequest>,
     mut signal_updates: MessageWriter<SignalUpdate>,
     mut switch_updates: MessageWriter<SwitchUpdate>,
-    mut lamp_updates: MessageWriter<LampUpdate>,
     mut commands: Commands,
 ) {
-    station_map.handle_route_activation(
-        &block_map,
-        &mut requests,
-        &mut signal_updates,
-        &mut switch_updates,
-        &mut lamp_updates,
-        &mut commands,
-    );
+    station_map.handle_route_activation(&mut requests, &mut signal_updates, &mut switch_updates, &mut commands);
 }

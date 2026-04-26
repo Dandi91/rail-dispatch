@@ -83,9 +83,22 @@ Each spawner entry has a `kind`: `Spawn`, `Despawn`, or `Both`.
 `SpawnerData` fields: `block_id`, `kind`, `approach_len` (extra blocks to watch), `speed_kmh` (initial train speed), `x`/`y` (UI button position).
 
 ### Level Format (`resources/level.toml`)
-Sections: `lamps` (visual positions), `blocks` (track segments with length/ID), `connections` (topology), `switches` (branching points), `signals` (control points), `spawners` (entry/exit points), `stations` (named groups of routes, each route has a `signal` ID and a `sections` array), `background` (hex color string).
+Tables: `lamps` (visual positions), `blocks` (track segments with length/ID), `connections` (topology), `switches` (branching points), `signals` (control points), `spawners` (entry/exit points), `sections` (top-level visual block groupings — `[id, [block_ids]]`), `stations` (named groups of routes), `background` (hex color string).
+
+A `RouteData` has `id`, `signal` (the protecting signal ID), `sections` (the section IDs the route covers), and `switches` (a list of `SwitchSetting { switch_id, position }` to enforce). The route's block set is derived as the union of its sections' blocks.
 
 The `Level` struct is a proper Bevy `Asset` loaded via the custom `LevelLoader` in `src/level.rs`.
+
+### Routes & Sections
+Routes and sections are both owned by `StationMap` (`simulation/station.rs`); they are tightly coupled.
+
+`Route` has a `RouteState`: `Inactive` → `Active` (signal opened, awaiting train) → `Used` (train entered, signal auto-closed) → `Inactive` (all route blocks freed). It carries `section_ids` (the sections it covers) and a derived `block_ids` (union of those sections' blocks, used for occupation/conflict checks).
+
+`Section` carries its `blocks`, pre-resolved `lamps`, an `occupied` set, and an `active` flag. **A section's lamps are only emitted while `active == true`**, which prevents overlapping sections from lighting up under unrelated traffic. A section becomes active when a route covering it is activated, and inactive when the owning route returns to `Inactive`. Because conflicting routes (those sharing any block) cannot be simultaneously active, at most one active route can ever claim a given section at a time.
+
+Activation flow (`handle_route_activation`): validates `Inactive` state, all route blocks free, no conflicting route active (using precomputed `blocks_to_routes` and `conflicting_routes`); writes `SwitchUpdate`s; opens the signal via `SignalUpdate::Manual(Unrestricting)`; flips `active = true` on each route section; triggers `SetPending(route.block_ids)` (an `Event` observed in `MapPlugin`) to paint route block lamps yellow.
+
+Lamp emission (`track_route_state`): on every `BlockUpdate`, both `route.occupied` and `section.occupied` are updated. If a section is `active` and its occupation transitioned (free ↔ occupied), it emits `LampUpdate`s for **all** of its blocks together. To avoid double-emission, `BlockMap` skips per-block lamp updates for any block listed in its `sectioned_blocks` set — `StationMap` is the sole owner of lamp emission for sectioned blocks.
 
 ### Signal Types (`simulation/signal.rs`)
 - **`TrackSignal`**: Signal entity on a block; holds aspect, speed control info, and a `SignalType` (`Automatic` / `Manual`).

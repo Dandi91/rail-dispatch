@@ -1,6 +1,5 @@
 use crate::assets::{AssetHandles, LoadingState};
-use crate::common::LampId;
-use crate::common::{BlockId, Direction, SignalId, SwitchPosition, TrainId};
+use crate::common::{BlockId, Direction, LampId, SignalId, SwitchPosition, TrainId};
 use crate::level::{BlockData, Level};
 use crate::simulation::signal::{SignalAspect, SignalMap, TrackSignal};
 use crate::simulation::sparse_vec::{Chunkable, SparseVec};
@@ -191,6 +190,9 @@ pub struct BlockMap {
     tracker: BlockTracker,
     signals: SignalMap,
     switches: SparseVec<Switch>,
+    /// Blocks that belong to at least one section. Per-block lamp emission is suppressed
+    /// for these — section lamp updates are owned by `StationMap`.
+    sectioned_blocks: HashSet<BlockId>,
 }
 
 impl BlockMap {
@@ -217,7 +219,7 @@ impl BlockMap {
 
     pub fn despawn_train(&mut self, train_id: TrainId, block_updates: &mut MessageWriter<BlockUpdate>) {
         if let Some(blocks) = self.tracker.despawn_train(train_id) {
-            block_updates.write_batch(blocks.iter().map(|b| BlockUpdate::freed(*b, train_id)));
+            block_updates.write_batch(blocks.iter().map(|&b| BlockUpdate::freed(b, train_id)));
         }
     }
 
@@ -265,7 +267,9 @@ impl BlockMap {
                 return;
             }
             let block = &self.blocks[update.block_id];
-            lamp_updates.write(LampUpdate::from_block_state(update.state, block.lamp_id));
+            if !self.sectioned_blocks.contains(&update.block_id) {
+                lamp_updates.write(LampUpdate::from_block_state(update.state, block.lamp_id));
+            }
             signal_updates.write_batch(
                 self.find_affected_signals(block, update.state)
                     .iter()
@@ -316,6 +320,14 @@ impl BlockMap {
                 self.signals[update.signal_id].change_aspect(aspect);
             }
         }
+    }
+
+    fn handle_pending(&self, blocks: &Vec<BlockId>, lamp_updates: &mut MessageWriter<LampUpdate>) {
+        lamp_updates.write_batch(
+            blocks
+                .iter()
+                .map(|&block_id| LampUpdate::pending(self.blocks[block_id].lamp_id)),
+        );
     }
 
     fn init(&mut self, block_updates: &mut MessageWriter<BlockUpdate>) {
@@ -437,10 +449,14 @@ impl BlockMap {
             blocks[conn.end].prev = Some(conn.start);
         }
 
+        let sectioned_blocks: HashSet<BlockId> =
+            level.sections.iter().flat_map(|sd| sd.blocks.iter().copied()).collect();
+
         BlockMap {
             blocks,
             signals,
             switches,
+            sectioned_blocks,
             ..Default::default()
         }
     }
@@ -558,6 +574,9 @@ impl Iterator for TrackWalker<'_> {
     }
 }
 
+#[derive(Event)]
+pub struct SetPending(pub Vec<BlockId>);
+
 pub struct MapPlugin;
 
 impl Plugin for MapPlugin {
@@ -565,6 +584,7 @@ impl Plugin for MapPlugin {
         app.add_message::<BlockUpdate>()
             .add_message::<LampUpdate>()
             .add_message::<SignalUpdate>()
+            .add_observer(handle_pending)
             .add_systems(OnExit(LoadingState::Loading), (setup, init).chain())
             .add_systems(
                 Update,
@@ -608,6 +628,10 @@ fn signal_updates(
 
 fn switch_updates(mut block_map: ResMut<BlockMap>, mut switch_updates: MessageReader<SwitchUpdate>) {
     block_map.process_switch_updates(&mut switch_updates);
+}
+
+fn handle_pending(event: On<SetPending>, block_map: Res<BlockMap>, mut lamp_updates: MessageWriter<LampUpdate>) {
+    block_map.handle_pending(&event.0, &mut lamp_updates);
 }
 
 #[cfg(test)]
