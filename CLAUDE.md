@@ -65,7 +65,12 @@ The project uses Bevy 0.18's **buffered Message system** for all simulation inte
 Messages live alongside the plugin that owns them:
 - `MapPlugin` (`simulation/block.rs`) registers `BlockUpdate`, `LampUpdate`, `SignalUpdate`.
 - `StationPlugin` (`simulation/station.rs`) registers `SwitchUpdate` and `RouteActivationRequest`.
-- `TrainPlugin` (`simulation/train.rs`) registers `TrainSpawnRequest` and `TrainDespawnRequest`.
+- `TrainPlugin` (`simulation/train.rs`) registers `TrainMove`, `TrainSpawnRequest`, and `TrainDespawnRequest`.
+
+**`BlockUpdate` vs. `TrainMove`** (important distinction):
+- `TrainMove { block_id, train_id, kind: Entered | Exited }` — emitted by trains (and `BlockMap::despawn_train`) every time a train steps into or off a block. Carries `train_id`. Consumed by `Spawner`/`Despawner` (which need to know *which* train) and by `BlockMap::process_train_moves`.
+- `BlockUpdate { block_id, state: Freed | Occupied }` — emitted **only** by `process_train_moves` when a train move actually flips the block's status (first train arriving / last train leaving). No `train_id`. Consumed by lamp/signal propagation and by `StationMap` route/section trackers.
+- `MapPlugin` chain: `switch_updates → train_moves → block_updates → signal_updates`.
 
 **Exception**: UI/audio-triggered events use `#[derive(Event)]` with `commands.trigger()` and `On<T>` observers — `SpawnRequest` (`spawner.rs`) and `AudioEvent` (`audio.rs`) are intentional examples.
 
@@ -78,7 +83,7 @@ Each spawner entry has a `kind`: `Spawn`, `Despawn`, or `Both`.
 
 **Despawn side** (`Despawner` component): watches `block_id` and `adjacent_block_id` (the next block inward). When a train clears both, a `TrainDespawnRequest` is written. If a signal exists at the open end of the despawn block, it is permanently opened (sent `Unrestricting`) at init so incoming trains aren't speed-restricted.
 
-`SpawnerMapper` resource maps `BlockId → Entity` for fast lookup of `BlockUpdate` messages. Approach blocks (up to `approach_len` blocks ahead) are also added to the mapper so the `Spawner` can track a multi-block train throughout its entry.
+`SpawnerMapper` resource maps `BlockId → Entity` for fast lookup of `TrainMove` messages. Approach blocks (up to `approach_len` blocks ahead) are also added to the mapper so the `Spawner` can track a multi-block train throughout its entry.
 
 `SpawnerData` fields: `block_id`, `kind`, `approach_len` (extra blocks to watch), `speed_kmh` (initial train speed), `x`/`y` (UI button position).
 
