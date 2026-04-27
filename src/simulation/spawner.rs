@@ -2,9 +2,11 @@ use crate::assets::{AssetHandles, LoadingState};
 use crate::audio::AudioEvent;
 use crate::common::{BlockId, Direction, TrainId};
 use crate::level::{Level, SpawnerKind};
-use crate::simulation::block::{BlockMap, BlockState, BlockUpdate, SignalUpdate, SignalUpdateState, TrackPoint};
+use crate::simulation::block::{BlockMap, SignalUpdate, SignalUpdateState, TrackPoint};
 use crate::simulation::signal::SignalAspect;
-use crate::simulation::train::{RailVehicle, TrainDespawnRequest, TrainSpawnRequest, get_random_train_number};
+use crate::simulation::train::{
+    RailVehicle, TrainDespawnRequest, TrainMove, TrainMoveKind, TrainSpawnRequest, get_random_train_number,
+};
 use bevy::prelude::*;
 use std::collections::HashMap;
 
@@ -158,35 +160,35 @@ fn init(
 fn update_spawners(
     spawner_mapper: Res<SpawnerMapper>,
     mut query: Query<&mut Spawner>,
-    mut block_updates: MessageReader<BlockUpdate>,
+    mut train_moves: MessageReader<TrainMove>,
 ) {
-    for update in block_updates.read() {
-        if let Some(entity) = spawner_mapper.get(&update.block_id)
+    for mv in train_moves.read() {
+        if let Some(entity) = spawner_mapper.get(&mv.block_id)
             && let Ok(mut spawner) = query.get_mut(*entity)
         {
             let spawner_id = spawner.block_id;
-            match update.state {
-                BlockState::Occupied => {
+            match mv.kind {
+                TrainMoveKind::Entered => {
                     if let Some(existing) = spawner.train.as_mut() {
-                        if existing.occupy(update.train_id).is_err() {
+                        if existing.occupy(mv.train_id).is_err() {
                             warn!(
                                 "Spawner {} was already occupied by train {}",
                                 spawner_id, existing.train_id
                             );
                         }
                     } else {
-                        spawner.train = Some(Occupation::new(update.train_id));
+                        spawner.train = Some(Occupation::new(mv.train_id));
                     }
                 }
-                BlockState::Freed => {
+                TrainMoveKind::Exited => {
                     if let Some(existing) = spawner.train.as_mut() {
-                        match existing.free(update.train_id) {
+                        match existing.free(mv.train_id) {
                             Ok(0) => spawner.train = None,
                             Ok(_) => {}
                             Err(_) => {
                                 warn!(
                                     "Spawner {} was occupied by train {}, freed by train {}",
-                                    spawner_id, existing.train_id, update.train_id
+                                    spawner_id, existing.train_id, mv.train_id
                                 );
                             }
                         }
@@ -200,26 +202,26 @@ fn update_spawners(
 fn update_despawners(
     spawner_mapper: Res<SpawnerMapper>,
     mut query: Query<&mut Despawner>,
-    mut block_updates: MessageReader<BlockUpdate>,
+    mut train_moves: MessageReader<TrainMove>,
     mut despawn_requests: MessageWriter<TrainDespawnRequest>,
 ) {
-    for update in block_updates.read() {
-        if let Some(entity) = spawner_mapper.get(&update.block_id)
+    for mv in train_moves.read() {
+        if let Some(entity) = spawner_mapper.get(&mv.block_id)
             && let Ok(mut despawner) = query.get_mut(*entity)
         {
-            let adjacent_update = update.block_id == despawner.adjacent_block_id;
-            match update.state {
-                BlockState::Occupied => {
+            let adjacent_update = mv.block_id == despawner.adjacent_block_id;
+            match mv.kind {
+                TrainMoveKind::Entered => {
                     if adjacent_update && despawner.train.is_none() {
-                        despawner.train = Some(update.train_id);
+                        despawner.train = Some(mv.train_id);
                     }
                 }
-                BlockState::Freed => {
-                    if update.block_id == despawner.block_id {
+                TrainMoveKind::Exited => {
+                    if mv.block_id == despawner.block_id {
                         despawner.train = None;
-                    } else if adjacent_update && despawner.train == Some(update.train_id) {
+                    } else if adjacent_update && despawner.train == Some(mv.train_id) {
                         despawner.train = None;
-                        despawn_requests.write(TrainDespawnRequest { id: update.train_id });
+                        despawn_requests.write(TrainDespawnRequest { id: mv.train_id });
                     }
                 }
             }

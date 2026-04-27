@@ -4,6 +4,7 @@ use crate::level::{BlockData, Level};
 use crate::simulation::signal::{SignalAspect, SignalMap, TrackSignal};
 use crate::simulation::sparse_vec::{Chunkable, SparseVec};
 use crate::simulation::station::{Switch, SwitchUpdate};
+use crate::simulation::train::{TrainMove, TrainMoveKind};
 use arrayvec::ArrayVec;
 use bevy::prelude::*;
 use itertools::Itertools;
@@ -31,23 +32,20 @@ impl Not for BlockState {
 #[derive(Message)]
 pub struct BlockUpdate {
     pub block_id: BlockId,
-    pub train_id: TrainId,
     pub state: BlockState,
 }
 
 impl BlockUpdate {
-    pub fn occupied(block_id: BlockId, train_id: TrainId) -> Self {
+    pub fn occupied(block_id: BlockId) -> Self {
         BlockUpdate {
             block_id,
-            train_id,
             state: BlockState::Occupied,
         }
     }
 
-    pub fn freed(block_id: BlockId, train_id: TrainId) -> Self {
+    pub fn freed(block_id: BlockId) -> Self {
         BlockUpdate {
             block_id,
-            train_id,
             state: BlockState::Freed,
         }
     }
@@ -168,19 +166,15 @@ impl BlockTracker {
 
     /// Records block as freed by the train id, returns true if the block is now free
     fn set_freed(&mut self, block_id: BlockId, train_id: TrainId) -> bool {
-        self.trains.get_mut(&train_id).map(|v| v.remove(&block_id));
+        if let Some(v) = self.trains.get_mut(&train_id) {
+            v.remove(&block_id);
+            if v.is_empty() {
+                self.trains.remove(&train_id);
+            }
+        }
         self.blocks.get_mut(&block_id).is_none_or(|v| {
             v.retain(|&x| x != train_id);
             v.is_empty()
-        })
-    }
-
-    /// Despawns the train and removes it from all blocks occupied by it
-    fn despawn_train(&mut self, train_id: TrainId) -> Option<HashSet<BlockId>> {
-        self.trains.remove(&train_id).inspect(|blocks| {
-            blocks.iter().for_each(|&block_id| {
-                self.set_freed(block_id, train_id);
-            })
         })
     }
 }
@@ -218,9 +212,9 @@ impl BlockMap {
         self.blocks.get(block_id)
     }
 
-    pub fn despawn_train(&mut self, train_id: TrainId, block_updates: &mut MessageWriter<BlockUpdate>) {
-        if let Some(blocks) = self.tracker.despawn_train(train_id) {
-            block_updates.write_batch(blocks.iter().map(|&b| BlockUpdate::freed(b, train_id)));
+    pub fn despawn_train(&self, train_id: TrainId, train_moves: &mut MessageWriter<TrainMove>) {
+        if let Some(blocks) = self.tracker.trains.get(&train_id) {
+            train_moves.write_batch(blocks.iter().map(|&b| TrainMove::exited(b, train_id)));
         }
     }
 
@@ -249,21 +243,32 @@ impl BlockMap {
         }
     }
 
-    fn process_block_updates(
+    fn process_train_moves(
         &mut self,
+        train_moves: &mut MessageReader<TrainMove>,
+        block_updates: &mut MessageWriter<BlockUpdate>,
+    ) {
+        for mv in train_moves.read() {
+            let changed = match mv.kind {
+                TrainMoveKind::Entered => self.tracker.set_occupied(mv.block_id, mv.train_id),
+                TrainMoveKind::Exited => self.tracker.set_freed(mv.block_id, mv.train_id),
+            };
+            if changed {
+                block_updates.write(match mv.kind {
+                    TrainMoveKind::Entered => BlockUpdate::occupied(mv.block_id),
+                    TrainMoveKind::Exited => BlockUpdate::freed(mv.block_id),
+                });
+            }
+        }
+    }
+
+    fn process_block_updates(
+        &self,
         block_updates: &mut MessageReader<BlockUpdate>,
         lamp_updates: &mut MessageWriter<LampUpdate>,
         signal_updates: &mut MessageWriter<SignalUpdate>,
     ) {
         for update in block_updates.read() {
-            let changed = match update.state {
-                BlockState::Occupied => self.tracker.set_occupied(update.block_id, update.train_id),
-                BlockState::Freed => self.tracker.set_freed(update.block_id, update.train_id),
-            };
-
-            if !changed {
-                return;
-            }
             let block = &self.blocks[update.block_id];
             if !self.sectioned_blocks.contains(&update.block_id) {
                 lamp_updates.write(LampUpdate::from_block_state(update.state, block.lamp_id));
@@ -328,17 +333,13 @@ impl BlockMap {
         );
     }
 
-    fn init(
-        &mut self,
-        block_updates: &mut MessageWriter<BlockUpdate>,
-        switch_updates: &mut MessageWriter<SwitchUpdate>,
-    ) {
+    fn init(&self, block_updates: &mut MessageWriter<BlockUpdate>, switch_updates: &mut MessageWriter<SwitchUpdate>) {
         switch_updates.write_batch(
             self.switches
                 .iter()
                 .map(|switch| SwitchUpdate::new(switch.id, switch.position)),
         );
-        block_updates.write_batch(self.blocks.iter().map(|block| BlockUpdate::freed(block.id, 0)));
+        block_updates.write_batch(self.blocks.iter().map(|block| BlockUpdate::freed(block.id)));
     }
 
     /// Given a block state update, returns a collection of all signals that it affects
@@ -585,7 +586,7 @@ impl Plugin for MapPlugin {
             .add_systems(OnExit(LoadingState::Loading), (setup, init).chain())
             .add_systems(
                 Update,
-                (switch_updates, block_updates, signal_updates)
+                (switch_updates, train_moves, block_updates, signal_updates)
                     .chain()
                     .run_if(in_state(LoadingState::Instantiated)),
             );
@@ -598,7 +599,7 @@ fn setup(handles: Res<AssetHandles>, levels: Res<Assets<Level>>, mut commands: C
 }
 
 fn init(
-    mut block_map: ResMut<BlockMap>,
+    block_map: Res<BlockMap>,
     mut block_updates: MessageWriter<BlockUpdate>,
     mut switch_updates: MessageWriter<SwitchUpdate>,
     mut next_loading_state: ResMut<NextState<LoadingState>>,
@@ -607,8 +608,16 @@ fn init(
     next_loading_state.set(LoadingState::Instantiated);
 }
 
-fn block_updates(
+fn train_moves(
     mut block_map: ResMut<BlockMap>,
+    mut train_moves: MessageReader<TrainMove>,
+    mut block_updates: MessageWriter<BlockUpdate>,
+) {
+    block_map.process_train_moves(&mut train_moves, &mut block_updates);
+}
+
+fn block_updates(
+    block_map: Res<BlockMap>,
     mut block_updates: MessageReader<BlockUpdate>,
     mut lamp_updates: MessageWriter<LampUpdate>,
     mut signal_updates: MessageWriter<SignalUpdate>,

@@ -1,9 +1,40 @@
 use crate::assets::LoadingState;
-use crate::common::{Direction, SpeedConv, TrainId};
-use crate::simulation::block::{BlockMap, BlockUpdate, TrackPoint};
+use crate::common::{BlockId, Direction, SpeedConv, TrainId};
+use crate::simulation::block::{BlockMap, TrackPoint};
 use crate::simulation::signal::SpeedLimit;
 use bevy::prelude::*;
 use std::collections::HashMap;
+
+#[derive(Copy, Clone, PartialEq)]
+pub enum TrainMoveKind {
+    Entered,
+    Exited,
+}
+
+#[derive(Message)]
+pub struct TrainMove {
+    pub block_id: BlockId,
+    pub train_id: TrainId,
+    pub kind: TrainMoveKind,
+}
+
+impl TrainMove {
+    pub fn entered(block_id: BlockId, train_id: TrainId) -> Self {
+        TrainMove {
+            block_id,
+            train_id,
+            kind: TrainMoveKind::Entered,
+        }
+    }
+
+    pub fn exited(block_id: BlockId, train_id: TrainId) -> Self {
+        TrainMove {
+            block_id,
+            train_id,
+            kind: TrainMoveKind::Exited,
+        }
+    }
+}
 
 #[derive(Default)]
 struct TrainControls {
@@ -194,7 +225,7 @@ impl Train {
         Some(0.0f64.max((speed_diff_mps * speed_sum) / (2.0 * deceleration_mps2)))
     }
 
-    fn update(&mut self, dt: f64, map: &BlockMap, block_updates: &mut MessageWriter<BlockUpdate>) {
+    fn update(&mut self, dt: f64, map: &BlockMap, train_moves: &mut MessageWriter<TrainMove>) {
         const CREEP_SPEED_KMH: f64 = 20.0;
         const CREEP_STOP_OFFSET_M: f64 = 50.0;
         if dt <= 0.0 {
@@ -279,11 +310,11 @@ impl Train {
         if dx > 0.0 {
             let new_front = map.step_by(&self.front_position, dx, self.direction);
             if self.front_position.block_id != new_front.block_id {
-                block_updates.write(BlockUpdate::occupied(new_front.block_id, self.id));
+                train_moves.write(TrainMove::entered(new_front.block_id, self.id));
             }
             let new_back = map.step_by(&self.front_position, self.stats.length_m, self.direction.reverse());
             if self.back_position.block_id != new_back.block_id {
-                block_updates.write(BlockUpdate::freed(self.back_position.block_id, self.id));
+                train_moves.write(TrainMove::exited(self.back_position.block_id, self.id));
             }
             self.front_position = new_front;
             self.back_position = new_back;
@@ -321,6 +352,7 @@ impl Plugin for TrainPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NextTrainId>()
             .init_resource::<TrainMapper>()
+            .add_message::<TrainMove>()
             .add_message::<TrainSpawnRequest>()
             .add_message::<TrainDespawnRequest>()
             .add_systems(
@@ -335,10 +367,10 @@ fn update(
     time: Res<Time>,
     block_map: Res<BlockMap>,
     mut query: Query<&mut Train>,
-    mut block_updates: MessageWriter<BlockUpdate>,
+    mut train_moves: MessageWriter<TrainMove>,
 ) {
     query.iter_mut().for_each(|mut train| {
-        train.update(time.delta_secs_f64(), &block_map, &mut block_updates);
+        train.update(time.delta_secs_f64(), &block_map, &mut train_moves);
     });
 }
 
@@ -346,15 +378,15 @@ fn despawn_trains(
     query: Query<&Train>,
     mut mapper: ResMut<TrainMapper>,
     mut requests: MessageReader<TrainDespawnRequest>,
-    mut block_map: ResMut<BlockMap>,
-    mut block_updates: MessageWriter<BlockUpdate>,
+    block_map: Res<BlockMap>,
+    mut train_moves: MessageWriter<TrainMove>,
     mut commands: Commands,
 ) {
     for request in requests.read() {
         if let Some(entity) = mapper.remove(&request.id) {
             let train = query.get(entity).expect("invalid train entity");
             info!("Train {} despawned with ID {}", train.number, train.id);
-            block_map.despawn_train(request.id, &mut block_updates);
+            block_map.despawn_train(request.id, &mut train_moves);
             commands.entity(entity).despawn();
         }
     }
@@ -364,7 +396,7 @@ fn spawn_trains(
     block_map: Res<BlockMap>,
     mut mapper: ResMut<TrainMapper>,
     mut requests: MessageReader<TrainSpawnRequest>,
-    mut block_updates: MessageWriter<BlockUpdate>,
+    mut train_moves: MessageWriter<TrainMove>,
     mut train_id: ResMut<NextTrainId>,
     mut commands: Commands,
 ) {
@@ -375,11 +407,7 @@ fn spawn_trains(
             .collect();
 
         let train_id = train_id.next();
-        block_updates.write_batch(
-            trace
-                .iter()
-                .map(|point| BlockUpdate::occupied(point.block_id, train_id)),
-        );
+        train_moves.write_batch(trace.iter().map(|point| TrainMove::entered(point.block_id, train_id)));
 
         info!("Train {} spawned with ID {}", spawn.number, train_id);
         let entity = commands
