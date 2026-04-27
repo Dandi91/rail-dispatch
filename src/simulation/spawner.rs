@@ -2,7 +2,7 @@ use crate::assets::{AssetHandles, LoadingState};
 use crate::audio::AudioEvent;
 use crate::common::{BlockId, Direction, TrainId};
 use crate::level::{Level, SpawnerKind};
-use crate::simulation::block::{BlockMap, BlockUpdate, BlockUpdateState, SignalUpdate, SignalUpdateState, TrackPoint};
+use crate::simulation::block::{BlockMap, BlockState, BlockUpdate, SignalUpdate, SignalUpdateState, TrackPoint};
 use crate::simulation::signal::SignalAspect;
 use crate::simulation::train::{RailVehicle, TrainDespawnRequest, TrainSpawnRequest, get_random_train_number};
 use bevy::prelude::*;
@@ -166,7 +166,7 @@ fn update_spawners(
         {
             let spawner_id = spawner.block_id;
             match update.state {
-                BlockUpdateState::Occupied => {
+                BlockState::Occupied => {
                     if let Some(existing) = spawner.train.as_mut() {
                         if existing.occupy(update.train_id).is_err() {
                             warn!(
@@ -178,7 +178,7 @@ fn update_spawners(
                         spawner.train = Some(Occupation::new(update.train_id));
                     }
                 }
-                BlockUpdateState::Freed => {
+                BlockState::Freed => {
                     if let Some(existing) = spawner.train.as_mut() {
                         match existing.free(update.train_id) {
                             Ok(0) => spawner.train = None,
@@ -209,12 +209,12 @@ fn update_despawners(
         {
             let adjacent_update = update.block_id == despawner.adjacent_block_id;
             match update.state {
-                BlockUpdateState::Occupied => {
+                BlockState::Occupied => {
                     if adjacent_update && despawner.train.is_none() {
                         despawner.train = Some(update.train_id);
                     }
                 }
-                BlockUpdateState::Freed => {
+                BlockState::Freed => {
                     if update.block_id == despawner.block_id {
                         despawner.train = None;
                     } else if adjacent_update && despawner.train == Some(update.train_id) {

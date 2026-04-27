@@ -125,9 +125,9 @@ stations = [
         id = 1,
         name = "junction",
         routes = [
-            # id, signal_id, section id list, switches list
-            [ 1, 50, [1], [{ switch_id = 1, position = "straight" }] ],
-            [ 2, 50, [2], [{ switch_id = 1, position = "side" }] ],
+            # id, signal_id, section id list, target block id, switches list
+            [ 1, 50, [1], 7, [{ switch_id = 1, position = "straight" }] ],
+            [ 2, 50, [2], 22, [{ switch_id = 1, position = "side" }] ],
         ]
     },
 ]

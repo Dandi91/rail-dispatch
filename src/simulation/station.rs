@@ -2,9 +2,7 @@ use crate::assets::{AssetHandles, LoadingState};
 use crate::audio::AudioEvent;
 use crate::common::{BlockId, Direction, LampId, RouteId, SectionId, SignalId, StationId, SwitchId, SwitchPosition};
 use crate::level::{Level, SwitchData, SwitchSetting};
-use crate::simulation::block::{
-    BlockUpdate, BlockUpdateState, LampUpdate, SetPending, SignalUpdate, SignalUpdateState,
-};
+use crate::simulation::block::{BlockState, BlockUpdate, LampUpdate, SetPending, SignalUpdate, SignalUpdateState};
 use crate::simulation::signal::SignalAspect;
 use crate::simulation::sparse_vec::{Chunkable, SparseVec};
 use bevy::prelude::*;
@@ -60,10 +58,10 @@ impl BusyTracker {
 
     fn handle_update(&mut self, update: &BlockUpdate) {
         match update.state {
-            BlockUpdateState::Occupied => {
+            BlockState::Occupied => {
                 self.0.insert(update.block_id);
             }
-            BlockUpdateState::Freed => {
+            BlockState::Freed => {
                 self.0.remove(&update.block_id);
             }
         }
@@ -87,14 +85,24 @@ struct Route {
     signal_id: SignalId,
     section_ids: Vec<SectionId>,
     block_ids: Vec<BlockId>,
+    target_block_id: BlockId,
     switch_settings: Vec<SwitchSetting>,
     tracker: BusyTracker,
     state: RouteState,
+    target_block_state: BlockState,
 }
 
 impl Chunkable for Route {
     fn get_id(&self) -> u32 {
         self.id
+    }
+}
+
+impl Route {
+    fn get_lamp_blocks(&self) -> Vec<BlockId> {
+        let mut result = self.block_ids.clone();
+        result.push(self.target_block_id);
+        result
     }
 }
 
@@ -166,6 +174,7 @@ impl StationMap {
                     signal_id: rd.signal,
                     section_ids: rd.sections.clone(),
                     block_ids,
+                    target_block_id: rd.target,
                     switch_settings: rd.switches.clone(),
                     ..Default::default()
                 }
@@ -174,6 +183,10 @@ impl StationMap {
 
         let mut blocks_to_routes: HashMap<BlockId, Vec<RouteId>> = HashMap::new();
         for route in &routes {
+            blocks_to_routes
+                .entry(route.target_block_id)
+                .or_default()
+                .push(route.id);
             for &block_id in &route.block_ids {
                 blocks_to_routes.entry(block_id).or_default().push(route.id);
             }
@@ -232,8 +245,12 @@ impl StationMap {
             if let Some(route_ids) = self.blocks_to_routes.get(&update.block_id) {
                 for &route_id in route_ids {
                     let route = &mut self.routes[route_id];
-                    route.tracker.handle_update(update);
-                    recheck_route_ids.insert(route_id);
+                    if update.block_id == route.target_block_id {
+                        route.target_block_state = update.state;
+                    } else {
+                        route.tracker.handle_update(update);
+                        recheck_route_ids.insert(route_id);
+                    }
                 }
             }
             if let Some(section_ids) = self.blocks_to_sections.get(&update.block_id) {
@@ -299,6 +316,12 @@ impl StationMap {
                 continue;
             }
 
+            if route.target_block_state == BlockState::Occupied {
+                warn!("Route {} target block is occupied", req.route_id);
+                commands.trigger(AudioEvent::error());
+                continue;
+            }
+
             switch_updates.write_batch(
                 route
                     .switch_settings
@@ -317,7 +340,7 @@ impl StationMap {
 
             let route = &mut self.routes[req.route_id];
             route.state = RouteState::Active;
-            commands.trigger(SetPending(route.block_ids.clone()));
+            commands.trigger(SetPending(route.get_lamp_blocks()));
             commands.trigger(AudioEvent::beep());
         }
     }

@@ -1,16 +1,3 @@
-- Add speed restrictions to routing signals
-  - Maybe split signals into chain and routing types (i.e., automatically vs. manually operating)
-  - Allow assigning speed restrictions in level config to every path of routing signals separately
-  - Implement routes? Predefine routes in level config as a chain of switches and their positions?
-
-- Introduce stations
-  - A group of routes
-  - Every route has one or more switch positions and opens from a signal onto some track
-    - From signal to a track inside the station
-    - From signal to a track outside the station
-  - Route consists of one or more sections. To activate the route, all sections must be free
-  - Section consists of one or more blocks
-    - Section is free when all blocks are free
-    - Section is busy when at least one block is busy
-  - Routes may interlock with one another. If two routes are interlocked, only one can be active at a time
-  - 
+- Allow assigning speed restrictions in level config to every route from the signal separately
+- Repurpose the BlockUpdate message to specifically mean an update of a block's status. Use a new separate message type
+for conveying the train movement (stepping in or off the block).

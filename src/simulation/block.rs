@@ -11,18 +11,19 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Formatter;
 use std::ops::Not;
 
-#[derive(Copy, Clone)]
-pub enum BlockUpdateState {
-    Occupied,
+#[derive(Default, Copy, Clone, PartialEq)]
+pub enum BlockState {
+    #[default]
     Freed,
+    Occupied,
 }
 
-impl Not for BlockUpdateState {
+impl Not for BlockState {
     type Output = Self;
     fn not(self) -> Self::Output {
         match self {
-            BlockUpdateState::Occupied => BlockUpdateState::Freed,
-            BlockUpdateState::Freed => BlockUpdateState::Occupied,
+            BlockState::Occupied => BlockState::Freed,
+            BlockState::Freed => BlockState::Occupied,
         }
     }
 }
@@ -31,7 +32,7 @@ impl Not for BlockUpdateState {
 pub struct BlockUpdate {
     pub block_id: BlockId,
     pub train_id: TrainId,
-    pub state: BlockUpdateState,
+    pub state: BlockState,
 }
 
 impl BlockUpdate {
@@ -39,7 +40,7 @@ impl BlockUpdate {
         BlockUpdate {
             block_id,
             train_id,
-            state: BlockUpdateState::Occupied,
+            state: BlockState::Occupied,
         }
     }
 
@@ -47,7 +48,7 @@ impl BlockUpdate {
         BlockUpdate {
             block_id,
             train_id,
-            state: BlockUpdateState::Freed,
+            state: BlockState::Freed,
         }
     }
 }
@@ -66,10 +67,10 @@ pub struct LampUpdate {
 }
 
 impl LampUpdate {
-    pub fn from_block_state(update_state: BlockUpdateState, lamp_id: LampId) -> Self {
+    pub fn from_block_state(update_state: BlockState, lamp_id: LampId) -> Self {
         match update_state {
-            BlockUpdateState::Occupied => Self::on(lamp_id),
-            BlockUpdateState::Freed => Self::off(lamp_id),
+            BlockState::Occupied => Self::on(lamp_id),
+            BlockState::Freed => Self::off(lamp_id),
         }
     }
 
@@ -109,7 +110,7 @@ impl LampUpdate {
 #[derive(Copy, Clone)]
 pub enum SignalUpdateState {
     /// Update caused by the change of the guarded block state
-    BlockChange(BlockUpdateState),
+    BlockChange(BlockState),
     /// Update caused by the change of the next signal state
     SignalPropagation(SignalAspect),
     /// Manual override, e.g. from route activation
@@ -127,7 +128,7 @@ impl SignalUpdate {
         Self { signal_id, state }
     }
 
-    pub fn from_block_change(signal_id: SignalId, state: BlockUpdateState) -> Self {
+    pub fn from_block_change(signal_id: SignalId, state: BlockState) -> Self {
         Self::new(signal_id, SignalUpdateState::BlockChange(state))
     }
 }
@@ -256,8 +257,8 @@ impl BlockMap {
     ) {
         for update in block_updates.read() {
             let changed = match update.state {
-                BlockUpdateState::Occupied => self.tracker.set_occupied(update.block_id, update.train_id),
-                BlockUpdateState::Freed => self.tracker.set_freed(update.block_id, update.train_id),
+                BlockState::Occupied => self.tracker.set_occupied(update.block_id, update.train_id),
+                BlockState::Freed => self.tracker.set_freed(update.block_id, update.train_id),
             };
 
             if !changed {
@@ -286,9 +287,9 @@ impl BlockMap {
             let is_closed_manual = signal.is_closed_manual();
             let aspect = match update.state {
                 SignalUpdateState::BlockChange(block_update) => match block_update {
-                    BlockUpdateState::Occupied => SignalAspect::Forbidding,
-                    BlockUpdateState::Freed if is_closed_manual => SignalAspect::Forbidding,
-                    BlockUpdateState::Freed => {
+                    BlockState::Occupied => SignalAspect::Forbidding,
+                    BlockState::Freed if is_closed_manual => SignalAspect::Forbidding,
+                    BlockState::Freed => {
                         if let Some((next, _)) = self.lookup_signal_forward(&signal.position, signal.direction) {
                             next.speed_ctrl.aspect.chain()
                         } else {
@@ -342,7 +343,7 @@ impl BlockMap {
 
     /// Given a block state update, returns a collection of all signals that it affects
     /// (at most 2 signals per block, one in each direction).
-    fn find_affected_signals(&self, block: &Block, state: BlockUpdateState) -> ArrayVec<&TrackSignal, 2> {
+    fn find_affected_signals(&self, block: &Block, state: BlockState) -> ArrayVec<&TrackSignal, 2> {
         let point = block.middle();
         [Direction::Even, Direction::Odd]
             .iter()
@@ -351,7 +352,7 @@ impl BlockMap {
                     .skip(1)
                     .find_map(|p| self.signals.find_signal(p.block_id, direction.reverse()))
             })
-            .filter(|signal| matches!(state, BlockUpdateState::Occupied) || self.is_signal_free(signal))
+            .filter(|signal| matches!(state, BlockState::Occupied) || self.is_signal_free(signal))
             .collect()
     }
 
@@ -816,7 +817,7 @@ mod tests {
     fn affected_signals_busy() {
         let map = build_track_extended();
         let block = map.blocks.get(2).unwrap();
-        let mut result = map.find_affected_signals(block, BlockUpdateState::Occupied);
+        let mut result = map.find_affected_signals(block, BlockState::Occupied);
         result.sort_by_key(|&signal| signal.position.block_id);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].position.block_id, 1);
@@ -829,7 +830,7 @@ mod tests {
     fn affected_signals_free() {
         let map = build_track_extended();
         let block = map.blocks.get(2).unwrap();
-        let mut result = map.find_affected_signals(block, BlockUpdateState::Freed);
+        let mut result = map.find_affected_signals(block, BlockState::Freed);
         result.sort_by_key(|&signal| signal.position.block_id);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].position.block_id, 1);

@@ -104,6 +104,7 @@ pub struct RouteData {
     pub id: RouteId,
     pub signal: SignalId,
     pub sections: Vec<SectionId>,
+    pub target: BlockId,
     #[serde(default)]
     pub switches: Vec<SwitchSetting>,
 }
