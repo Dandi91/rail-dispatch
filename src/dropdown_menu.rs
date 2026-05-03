@@ -43,6 +43,7 @@ pub trait DropDownMenu: Component + Sized {
         let items: Vec<Self> = Self::list_available_items(event.entity, &mut *ctx)
             .into_iter()
             .collect();
+        let items_len = items.len();
 
         let (entity, vis, node, context_menu) = menu.deref_mut();
         commands.entity(*entity).despawn_children().with_children(|p| {
@@ -63,10 +64,12 @@ pub trait DropDownMenu: Component + Sized {
             }
         });
 
-        **vis = Visibility::Visible;
-        node.left = px(event.pointer_location.position.x);
-        node.top = px(event.pointer_location.position.y);
-        context_menu.target = Some(event.entity);
+        if items_len > 0 {
+            **vis = Visibility::Visible;
+            node.left = px(event.pointer_location.position.x);
+            node.top = px(event.pointer_location.position.y);
+            context_menu.target = Some(event.entity);
+        }
     }
 
     fn on_menu_click(
