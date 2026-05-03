@@ -409,7 +409,10 @@ fn spawn_trains(
         let train_id = train_id.next();
         train_moves.write_batch(trace.iter().map(|point| TrainMove::entered(point.block_id, train_id)));
 
-        info!("Train {} spawned with ID {}", spawn.number, train_id);
+        info!(
+            "Train {} spawned with ID {}, length {}",
+            spawn.number, train_id, stats.length_m
+        );
         let entity = commands
             .spawn(Train {
                 id: train_id,

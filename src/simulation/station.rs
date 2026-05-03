@@ -247,9 +247,10 @@ impl StationMap {
                     let route = &mut self.routes[route_id];
                     if update.block_id == route.target_block_id {
                         route.target_block_state = update.state;
+                    } else {
+                        route.tracker.handle_update(update);
+                        recheck_route_ids.insert(route_id);
                     }
-                    route.tracker.handle_update(update);
-                    recheck_route_ids.insert(route_id);
                 }
             }
             if let Some(section_ids) = self.blocks_to_sections.get(&update.block_id) {
