@@ -2,6 +2,7 @@ mod editor;
 mod handles;
 mod save;
 mod sidebar;
+mod text_input;
 
 use bevy::asset::AssetPlugin;
 use bevy::prelude::*;

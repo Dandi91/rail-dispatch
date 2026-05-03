@@ -57,7 +57,10 @@ pub fn bake_into_assets(
     };
     let now = Instant::now();
     bake_board(board, &original.0, &covers, lamps, background);
-    info!("Baked board in {} us", now.elapsed().as_micros());
+    let elapsed = now.elapsed();
+    if elapsed > std::time::Duration::from_millis(5) {
+        info!("Baked board in {} us", elapsed.as_micros());
+    }
     true
 }
 

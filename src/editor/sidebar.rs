@@ -5,6 +5,7 @@ use rail_dispatch::level::LampData;
 
 use crate::editor::{EditorState, RespawnLamp, lamp_kind_for};
 use crate::save::save_level;
+use crate::text_input::{FieldKind, TextInputPlugin, number_field};
 
 #[derive(Resource, Default)]
 pub struct SidebarState {
@@ -28,10 +29,6 @@ pub enum SidebarButton {
     Save,
     ResetZoom,
     ToggleKind,
-    StepX(i32),
-    StepY(i32),
-    StepWidth(i32),
-    StepRotation(i32),
 }
 
 #[derive(Component)]
@@ -42,6 +39,7 @@ pub struct SidebarPlugin;
 impl Plugin for SidebarPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SidebarState>()
+            .add_plugins(TextInputPlugin)
             .add_systems(Startup, setup_sidebar)
             .add_systems(
                 Update,
@@ -83,36 +81,14 @@ fn setup_sidebar(mut commands: Commands) {
             sidebar_button(p, "Kind: Block", SidebarButton::ToggleKind);
             sidebar_button(p, "Delete", SidebarButton::Delete);
 
-            row(p, |p| {
-                sidebar_button(p, "x -1", SidebarButton::StepX(-1));
-                sidebar_button(p, "x +1", SidebarButton::StepX(1));
-            });
-            row(p, |p| {
-                sidebar_button(p, "y -1", SidebarButton::StepY(-1));
-                sidebar_button(p, "y +1", SidebarButton::StepY(1));
-            });
-            row(p, |p| {
-                sidebar_button(p, "w -1", SidebarButton::StepWidth(-1));
-                sidebar_button(p, "w +1", SidebarButton::StepWidth(1));
-            });
-            row(p, |p| {
-                sidebar_button(p, "rot -5", SidebarButton::StepRotation(-5));
-                sidebar_button(p, "rot +5", SidebarButton::StepRotation(5));
-            });
+            number_field(p, FieldKind::X, 1);
+            number_field(p, FieldKind::Y, 1);
+            number_field(p, FieldKind::Width, 1);
+            number_field(p, FieldKind::Rotation, 5);
 
             sidebar_button(p, "Reset zoom", SidebarButton::ResetZoom);
             sidebar_button(p, "Save level.toml", SidebarButton::Save);
         });
-}
-
-fn row(parent: &mut ChildSpawnerCommands, build: impl FnOnce(&mut ChildSpawnerCommands)) {
-    parent
-        .spawn(Node {
-            flex_direction: FlexDirection::Row,
-            column_gap: Val::Px(4.0),
-            ..default()
-        })
-        .with_children(build);
 }
 
 fn sidebar_button(parent: &mut ChildSpawnerCommands, label: &str, action: SidebarButton) {
@@ -182,18 +158,7 @@ fn on_button_click(
                 CreateKind::Signal => CreateKind::Block,
             };
         }
-        SidebarButton::StepX(d) => mutate_selected(&mut state, &mut respawns, |l| l.x += d),
-        SidebarButton::StepY(d) => mutate_selected(&mut state, &mut respawns, |l| l.y += d),
-        SidebarButton::StepWidth(d) => mutate_selected(&mut state, &mut respawns, |l| l.width = (l.width + d).max(4)),
-        SidebarButton::StepRotation(d) => mutate_selected(&mut state, &mut respawns, |l| l.rotation += d),
     }
-}
-
-fn mutate_selected(state: &mut EditorState, respawns: &mut MessageWriter<RespawnLamp>, f: impl FnOnce(&mut LampData)) {
-    let Some(id) = state.selected else { return };
-    let Some(lamp) = state.get_mut(id) else { return };
-    f(lamp);
-    respawns.write(RespawnLamp(id));
 }
 
 fn update_info_text(
@@ -209,13 +174,9 @@ fn update_info_text(
                 LampKind::Signal => "signal",
             };
             format!(
-                "id {} ({})\nx {}  y {}\nw {}  rot {}\n\nlamps total: {}\nnew kind: {:?}",
+                "id {} ({})\n\nlamps total: {}\nnew kind: {:?}",
                 lamp.id,
                 kind,
-                lamp.x,
-                lamp.y,
-                lamp.width,
-                lamp.rotation,
                 state.lamps.len(),
                 sidebar_state.create_kind
             )
