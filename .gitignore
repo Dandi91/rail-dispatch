@@ -2,3 +2,4 @@
 .idea
 .cargo
 resources/*~
+resources/*.kra
