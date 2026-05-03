@@ -11,12 +11,12 @@ pub fn save_level(lamps: &[LampData]) -> Result<(), Box<dyn Error>> {
     let mut arr = toml::value::Array::new();
     for lamp in lamps {
         let mut row = toml::value::Array::new();
-        row.push(num(lamp.id as f64));
-        row.push(num(lamp.x as f64));
-        row.push(num(lamp.y as f64));
-        row.push(num(lamp.width as f64));
-        if lamp.rotation != 0.0 {
-            row.push(num(lamp.rotation as f64));
+        row.push(toml::Value::Integer(lamp.id as i64));
+        row.push(toml::Value::Integer(lamp.x as i64));
+        row.push(toml::Value::Integer(lamp.y as i64));
+        row.push(toml::Value::Integer(lamp.width as i64));
+        if lamp.rotation != 0 {
+            row.push(toml::Value::Integer(lamp.rotation as i64));
         }
         arr.push(toml::Value::Array(row));
     }
@@ -30,12 +30,4 @@ pub fn save_level(lamps: &[LampData]) -> Result<(), Box<dyn Error>> {
     let new_contents = toml::to_string_pretty(&value)?;
     fs::write(LEVEL_PATH, new_contents)?;
     Ok(())
-}
-
-fn num(v: f64) -> toml::Value {
-    if v.fract() == 0.0 && v.abs() < (i64::MAX as f64) {
-        toml::Value::Integer(v as i64)
-    } else {
-        toml::Value::Float(v)
-    }
 }

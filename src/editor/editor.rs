@@ -1,6 +1,7 @@
 use bevy::input::mouse::{MouseMotion, MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use rail_dispatch::assets::{AssetHandles, LoadingState};
+use rail_dispatch::board_baker::{OriginalBoard, bake_into_assets};
 use rail_dispatch::common::LampId;
 use rail_dispatch::display::{Lamp, LampKind, get_lamp_bundle};
 use rail_dispatch::level::{LampData, Level};
@@ -78,7 +79,13 @@ impl Plugin for EditorPlugin {
             .add_systems(OnExit(LoadingState::Loading), setup)
             .add_systems(
                 Update,
-                (zoom_input, pan_input, apply_canvas_transform, handle_respawn_lamp)
+                (
+                    zoom_input,
+                    pan_input,
+                    apply_canvas_transform,
+                    handle_respawn_lamp,
+                    rebake_on_respawn,
+                )
                     .run_if(in_state(LoadingState::Loaded)),
             );
     }
@@ -92,6 +99,7 @@ fn startup(mut commands: Commands) {
 fn setup(
     handles: Res<AssetHandles>,
     levels: Res<Assets<Level>>,
+    mut images: ResMut<Assets<Image>>,
     mut clear_color: ResMut<ClearColor>,
     mut state: ResMut<EditorState>,
     mut lamp_entities: ResMut<LampEntities>,
@@ -100,6 +108,12 @@ fn setup(
     let level = levels.get(&handles.level).expect("assets had been loaded");
     *clear_color = ClearColor(level.background.into());
     state.lamps = level.lamps.clone();
+
+    let original = OriginalBoard(images.get(&handles.board).expect("board image loaded").clone());
+    if !bake_into_assets(&mut images, &handles, &original, &state.lamps, *level.background) {
+        warn!("board bake skipped: cover images not yet loaded");
+    }
+    commands.insert_resource(original);
 
     let mut canvas = Entity::PLACEHOLDER;
     commands
@@ -131,7 +145,7 @@ fn setup(
                     p.spawn((
                         Node { ..default() },
                         ImageNode::new(handles.board.clone()),
-                        ZIndex(-1),
+                        ZIndex(1),
                         Pickable::IGNORE,
                     ));
                 })
@@ -140,13 +154,13 @@ fn setup(
     commands.insert_resource(CanvasRoot(canvas));
 
     for lamp in &state.lamps {
-        let entity = spawn_lamp_entity(&mut commands, canvas, lamp, &handles);
+        let entity = spawn_lamp_entity(&mut commands, canvas, lamp);
         lamp_entities.insert(lamp.id, entity);
     }
 }
 
-fn spawn_lamp_entity(commands: &mut Commands, canvas: Entity, lamp: &LampData, handles: &AssetHandles) -> Entity {
-    let id = commands.spawn(get_lamp_bundle(lamp, handles)).id();
+fn spawn_lamp_entity(commands: &mut Commands, canvas: Entity, lamp: &LampData) -> Entity {
+    let id = commands.spawn(get_lamp_bundle(lamp)).id();
     commands.entity(canvas).add_child(id);
     commands
         .entity(id)
@@ -156,11 +170,29 @@ fn spawn_lamp_entity(commands: &mut Commands, canvas: Entity, lamp: &LampData, h
     id
 }
 
+fn rebake_on_respawn(
+    mut events: MessageReader<RespawnLamp>,
+    handles: Res<AssetHandles>,
+    levels: Res<Assets<Level>>,
+    state: Res<EditorState>,
+    original: Option<Res<OriginalBoard>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    if events.is_empty() {
+        return;
+    }
+    events.clear();
+    let Some(original) = original else { return };
+    let Some(level) = levels.get(&handles.level) else {
+        return;
+    };
+    bake_into_assets(&mut images, &handles, &original, &state.lamps, *level.background);
+}
+
 fn handle_respawn_lamp(
     mut events: MessageReader<RespawnLamp>,
     state: Res<EditorState>,
     canvas_root: Res<CanvasRoot>,
-    handles: Res<AssetHandles>,
     mut lamp_entities: ResMut<LampEntities>,
     mut commands: Commands,
 ) {
@@ -169,7 +201,7 @@ fn handle_respawn_lamp(
             commands.entity(old).despawn();
         }
         if let Some(lamp) = state.get(*id) {
-            let entity = spawn_lamp_entity(&mut commands, canvas_root.0, lamp, &handles);
+            let entity = spawn_lamp_entity(&mut commands, canvas_root.0, lamp);
             lamp_entities.insert(*id, entity);
         }
     }

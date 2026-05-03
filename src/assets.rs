@@ -102,12 +102,12 @@ fn setup_assets(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.insert_resource(AssetHandles {
         level: asset_server.load_acquire("level.toml", guard.clone()),
         board: asset_server.load_acquire("board.png", guard.clone()),
-        cover_block_left: asset_server.load("covers/block_left.png"),
-        cover_block_mid: asset_server.load("covers/block_mid.png"),
-        cover_block_right: asset_server.load("covers/block_right.png"),
-        cover_signal_left: asset_server.load("covers/signal_left.png"),
-        cover_signal_mid: asset_server.load("covers/signal_mid.png"),
-        cover_signal_right: asset_server.load("covers/signal_right.png"),
+        cover_block_left: asset_server.load_acquire("covers/block_left.png", guard.clone()),
+        cover_block_mid: asset_server.load_acquire("covers/block_mid.png", guard.clone()),
+        cover_block_right: asset_server.load_acquire("covers/block_right.png", guard.clone()),
+        cover_signal_left: asset_server.load_acquire("covers/signal_left.png", guard.clone()),
+        cover_signal_mid: asset_server.load_acquire("covers/signal_mid.png", guard.clone()),
+        cover_signal_right: asset_server.load_acquire("covers/signal_right.png", guard.clone()),
     });
     commands.insert_resource(SoundHandles {
         beep: asset_server.load("sounds/beep.wav"),

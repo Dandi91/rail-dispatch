@@ -28,10 +28,10 @@ pub enum SidebarButton {
     Save,
     ResetZoom,
     ToggleKind,
-    StepX(f32),
-    StepY(f32),
-    StepWidth(f32),
-    StepRotation(f32),
+    StepX(i32),
+    StepY(i32),
+    StepWidth(i32),
+    StepRotation(i32),
 }
 
 #[derive(Component)]
@@ -84,20 +84,20 @@ fn setup_sidebar(mut commands: Commands) {
             sidebar_button(p, "Delete", SidebarButton::Delete);
 
             row(p, |p| {
-                sidebar_button(p, "x -1", SidebarButton::StepX(-1.0));
-                sidebar_button(p, "x +1", SidebarButton::StepX(1.0));
+                sidebar_button(p, "x -1", SidebarButton::StepX(-1));
+                sidebar_button(p, "x +1", SidebarButton::StepX(1));
             });
             row(p, |p| {
-                sidebar_button(p, "y -1", SidebarButton::StepY(-1.0));
-                sidebar_button(p, "y +1", SidebarButton::StepY(1.0));
+                sidebar_button(p, "y -1", SidebarButton::StepY(-1));
+                sidebar_button(p, "y +1", SidebarButton::StepY(1));
             });
             row(p, |p| {
-                sidebar_button(p, "w -1", SidebarButton::StepWidth(-1.0));
-                sidebar_button(p, "w +1", SidebarButton::StepWidth(1.0));
+                sidebar_button(p, "w -1", SidebarButton::StepWidth(-1));
+                sidebar_button(p, "w +1", SidebarButton::StepWidth(1));
             });
             row(p, |p| {
-                sidebar_button(p, "rot -5", SidebarButton::StepRotation(-5.0));
-                sidebar_button(p, "rot +5", SidebarButton::StepRotation(5.0));
+                sidebar_button(p, "rot -5", SidebarButton::StepRotation(-5));
+                sidebar_button(p, "rot +5", SidebarButton::StepRotation(5));
             });
 
             sidebar_button(p, "Reset zoom", SidebarButton::ResetZoom);
@@ -154,10 +154,10 @@ fn on_button_click(
             };
             state.lamps.push(LampData {
                 id,
-                x: 100.0,
-                y: 100.0,
-                width: 17.0,
-                rotation: 0.0,
+                x: 100,
+                y: 100,
+                width: 17,
+                rotation: 0,
             });
             state.selected = Some(id);
             respawns.write(RespawnLamp(id));
@@ -184,7 +184,7 @@ fn on_button_click(
         }
         SidebarButton::StepX(d) => mutate_selected(&mut state, &mut respawns, |l| l.x += d),
         SidebarButton::StepY(d) => mutate_selected(&mut state, &mut respawns, |l| l.y += d),
-        SidebarButton::StepWidth(d) => mutate_selected(&mut state, &mut respawns, |l| l.width = (l.width + d).max(4.0)),
+        SidebarButton::StepWidth(d) => mutate_selected(&mut state, &mut respawns, |l| l.width = (l.width + d).max(4)),
         SidebarButton::StepRotation(d) => mutate_selected(&mut state, &mut respawns, |l| l.rotation += d),
     }
 }
@@ -209,7 +209,7 @@ fn update_info_text(
                 LampKind::Signal => "signal",
             };
             format!(
-                "id {} ({})\nx {:.0}  y {:.0}\nw {:.0}  rot {:.1}\n\nlamps total: {}\nnew kind: {:?}",
+                "id {} ({})\nx {}  y {}\nw {}  rot {}\n\nlamps total: {}\nnew kind: {:?}",
                 lamp.id,
                 kind,
                 lamp.x,

@@ -24,11 +24,11 @@ pub struct Level {
 #[derive(Deserialize, Reflect, Clone)]
 pub struct LampData {
     pub id: LampId,
-    pub x: f32,
-    pub y: f32,
-    pub width: f32,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
     #[serde(default)]
-    pub rotation: f32,
+    pub rotation: i32,
 }
 
 #[derive(Deserialize, Reflect)]

@@ -22,6 +22,7 @@ pub enum HandleKind {
 pub struct EditorHandle {
     pub kind: HandleKind,
     pub lamp_id: LampId,
+    pub residual: Vec2,
 }
 
 pub struct HandlesPlugin;
@@ -49,45 +50,45 @@ fn sync_handles(
 
     // Lamp center in canvas coords (rotation pivot for UiTransform is node center).
     let lamp_h = rail_dispatch::display::DEFAULT_LAMP_HEIGHT;
-    let cx = lamp.x + lamp.width * 0.5;
-    let cy = lamp.y + lamp_h * 0.5;
-    let theta = lamp.rotation.to_radians();
+    let cx = lamp.x as f32 + lamp.width as f32 * 0.5;
+    let cy = lamp.y as f32 + lamp_h * 0.5;
+    let theta = (lamp.rotation as f32).to_radians();
     let (s, c) = theta.sin_cos();
 
     let body_node = Node {
         position_type: PositionType::Absolute,
-        left: Val::Px(lamp.x),
-        top: Val::Px(lamp.y),
-        width: Val::Px(lamp.width),
-        height: Val::Px(lamp_h),
+        left: px(lamp.x),
+        top: px(lamp.y),
+        width: px(lamp.width),
+        height: px(lamp_h),
         ..default()
     };
     let body_xform = UiTransform {
-        rotation: Rot2::degrees(lamp.rotation),
+        rotation: Rot2::degrees(lamp.rotation as f32),
         ..default()
     };
 
-    let width_r = lamp.width * 0.5 + WIDTH_HANDLE_OFFSET;
+    let width_r = lamp.width as f32 * 0.5 + WIDTH_HANDLE_OFFSET;
     let width_node = Node {
         position_type: PositionType::Absolute,
-        left: Val::Px(cx + width_r * c - HANDLE_SIZE * 0.5),
-        top: Val::Px(cy + width_r * s - HANDLE_SIZE * 0.5),
-        width: Val::Px(HANDLE_SIZE),
-        height: Val::Px(HANDLE_SIZE),
+        left: px(cx + width_r * c - HANDLE_SIZE * 0.5),
+        top: px(cy + width_r * s - HANDLE_SIZE * 0.5),
+        width: px(HANDLE_SIZE),
+        height: px(HANDLE_SIZE),
         ..default()
     };
     let width_xform = UiTransform {
-        rotation: Rot2::degrees(lamp.rotation + 45.0),
+        rotation: Rot2::degrees(lamp.rotation as f32 + 45.0),
         ..default()
     };
 
     // Rotation handle: lamp-local offset (0, -R) → canvas (cx + R*sin θ, cy - R*cos θ).
     let rotation_node = Node {
         position_type: PositionType::Absolute,
-        left: Val::Px(cx + ROTATION_HANDLE_OFFSET * s - HANDLE_SIZE * 0.5),
-        top: Val::Px(cy - ROTATION_HANDLE_OFFSET * c - HANDLE_SIZE * 0.5),
-        width: Val::Px(HANDLE_SIZE),
-        height: Val::Px(HANDLE_SIZE),
+        left: px(cx + ROTATION_HANDLE_OFFSET * s - HANDLE_SIZE * 0.5),
+        top: px(cy - ROTATION_HANDLE_OFFSET * c - HANDLE_SIZE * 0.5),
+        width: px(HANDLE_SIZE),
+        height: px(HANDLE_SIZE),
         border_radius: BorderRadius::MAX,
         ..default()
     };
@@ -122,6 +123,7 @@ fn sync_handles(
                 EditorHandle {
                     kind: HandleKind::Body,
                     lamp_id: selected,
+                    residual: Vec2::ZERO,
                 },
                 body_node,
                 body_xform,
@@ -139,6 +141,7 @@ fn sync_handles(
                 EditorHandle {
                     kind: HandleKind::Width,
                     lamp_id: selected,
+                    residual: Vec2::ZERO,
                 },
                 width_node,
                 width_xform,
@@ -156,6 +159,7 @@ fn sync_handles(
                 EditorHandle {
                     kind: HandleKind::Rotation,
                     lamp_id: selected,
+                    residual: Vec2::ZERO,
                 },
                 rotation_node,
                 BackgroundColor(COLOR_ROTATION),
@@ -170,14 +174,14 @@ fn sync_handles(
 
 fn on_drag(
     event: On<Pointer<Drag>>,
-    handles_q: Query<&EditorHandle>,
+    mut handles_q: Query<&mut EditorHandle>,
     mut state: ResMut<EditorState>,
     mut respawns: MessageWriter<RespawnLamp>,
 ) {
     if event.button != PointerButton::Primary {
         return;
     }
-    let Ok(handle) = handles_q.get(event.entity) else {
+    let Ok(mut handle) = handles_q.get_mut(event.entity) else {
         return;
     };
     let inv = 1.0 / state.zoom.max(0.0001);
@@ -186,23 +190,48 @@ fn on_drag(
     };
     let dx = event.delta.x * inv;
     let dy = event.delta.y * inv;
+    let mut changed = false;
     match handle.kind {
         HandleKind::Body => {
-            lamp.x += dx;
-            lamp.y += dy;
+            let acc = handle.residual + Vec2::new(dx, dy);
+            let step = Vec2::new(acc.x.round(), acc.y.round());
+            handle.residual = acc - step;
+            if step.x != 0.0 {
+                lamp.x += step.x as i32;
+                changed = true;
+            }
+            if step.y != 0.0 {
+                lamp.y += step.y as i32;
+                changed = true;
+            }
         }
         HandleKind::Width => {
-            let theta = lamp.rotation.to_radians();
+            let theta = (lamp.rotation as f32).to_radians();
             let (s, c) = theta.sin_cos();
             let dw = dx * c + dy * s;
-            lamp.width = (lamp.width + dw).max(4.0);
+            let acc = handle.residual.x + dw;
+            let step = acc.round();
+            handle.residual.x = acc - step;
+            if step != 0.0 {
+                lamp.width = (lamp.width + step as i32).max(4);
+                changed = true;
+            }
         }
         HandleKind::Rotation => {
-            let theta = lamp.rotation.to_radians();
+            let theta = (lamp.rotation as f32).to_radians();
             let (s, c) = theta.sin_cos();
             let arc = dx * c + dy * s;
-            lamp.rotation += arc.to_degrees() / ROTATION_HANDLE_OFFSET.max(1.0);
+            let dr = arc.to_degrees() / ROTATION_HANDLE_OFFSET.max(1.0);
+            let acc = handle.residual.x + dr;
+            let step = acc.round();
+            handle.residual.x = acc - step;
+            if step != 0.0 {
+                lamp.rotation += step as i32;
+                changed = true;
+            }
         }
     }
-    respawns.write(RespawnLamp(handle.lamp_id));
+    if changed {
+        respawns.write(RespawnLamp(handle.lamp_id));
+    }
 }

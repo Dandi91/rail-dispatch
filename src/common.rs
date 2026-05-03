@@ -54,7 +54,7 @@ impl Direction {
     }
 }
 
-#[derive(Reflect, Copy, Clone)]
+#[derive(Reflect, Copy, Clone, Deref)]
 pub struct HexColor(Srgba);
 
 impl<'de> Deserialize<'de> for HexColor {

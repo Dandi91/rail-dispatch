@@ -1,5 +1,6 @@
 pub mod assets;
 pub mod audio;
+pub mod board_baker;
 pub mod common;
 pub mod debug_overlay;
 pub mod display;
