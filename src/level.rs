@@ -21,7 +21,7 @@ pub struct Level {
     pub background: HexColor,
 }
 
-#[derive(Deserialize, Reflect)]
+#[derive(Deserialize, Reflect, Clone)]
 pub struct LampData {
     pub id: LampId,
     pub x: f32,

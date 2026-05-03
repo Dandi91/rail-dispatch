@@ -18,8 +18,8 @@ const LAMP_COLOR_YELLOW: Color = Color::srgba_u8(0xFF, 0xFF, 0x40, 0xFF);
 const LAMP_COLOR_RED: Color = Color::srgba_u8(0xFF, 0x20, 0x20, 0xFF);
 const LAMP_COLOR_GREEN: Color = Color::srgba_u8(0x00, 0xFF, 0x00, 0xFF);
 
-#[derive(Component)]
-enum LampKind {
+#[derive(Component, Clone, Copy)]
+pub enum LampKind {
     Block,
     Signal,
 }
@@ -28,11 +28,28 @@ enum LampKind {
 #[require(Pickable)]
 pub struct Lamp(pub LampId);
 
-fn get_lamp_bundle(lamp: &LampData) -> impl Bundle {
+#[derive(Component)]
+pub struct Backlight;
+
+pub fn get_lamp_bundle(lamp: &LampData, handles: &AssetHandles) -> impl Bundle {
     let rotation = if lamp.rotation != 0.0 {
         Rot2::degrees(lamp.rotation)
     } else {
         Rot2::IDENTITY
+    };
+
+    let kind = Lamp(lamp.id).get_kind();
+    let (left, mid, right) = match kind {
+        LampKind::Block => (
+            handles.cover_block_left.clone(),
+            handles.cover_block_mid.clone(),
+            handles.cover_block_right.clone(),
+        ),
+        LampKind::Signal => (
+            handles.cover_signal_left.clone(),
+            handles.cover_signal_mid.clone(),
+            handles.cover_signal_right.clone(),
+        ),
     };
 
     (
@@ -46,7 +63,63 @@ fn get_lamp_bundle(lamp: &LampData) -> impl Bundle {
             height: px(DEFAULT_LAMP_HEIGHT),
             ..default()
         },
-        BackgroundColor(LAMP_COLOR_GRAY),
+        children![
+            (
+                Backlight,
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: px(1.0),
+                    top: px(1.0),
+                    width: px(lamp.width - 2.0),
+                    height: px(DEFAULT_LAMP_HEIGHT - 2.0),
+                    ..default()
+                },
+                BackgroundColor(LAMP_COLOR_GRAY),
+                Pickable::IGNORE,
+            ),
+            (
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: px(0.0),
+                    top: px(0.0),
+                    width: percent(100.0),
+                    height: percent(100.0),
+                    flex_direction: FlexDirection::Row,
+                    ..default()
+                },
+                ZIndex(1),
+                Pickable::IGNORE,
+                children![
+                    (
+                        Node {
+                            // width: px(3.0),
+                            height: px(DEFAULT_LAMP_HEIGHT),
+                            ..default()
+                        },
+                        ImageNode::new(left),
+                        Pickable::IGNORE,
+                    ),
+                    (
+                        Node {
+                            flex_grow: 1.0,
+                            height: px(DEFAULT_LAMP_HEIGHT),
+                            ..default()
+                        },
+                        ImageNode::new(mid),
+                        Pickable::IGNORE,
+                    ),
+                    (
+                        Node {
+                            // width: px(3.0),
+                            height: px(DEFAULT_LAMP_HEIGHT),
+                            ..default()
+                        },
+                        ImageNode::new(right),
+                        Pickable::IGNORE,
+                    ),
+                ],
+            ),
+        ],
     )
 }
 
@@ -58,7 +131,7 @@ impl Lamp {
         }
     }
 
-    fn get_kind(&self) -> LampKind {
+    pub fn get_kind(&self) -> LampKind {
         if self.0 >= 100 {
             LampKind::Signal
         } else {
@@ -88,7 +161,7 @@ struct LampMapper(HashMap<LampId, Entity>);
 struct DisplayBoard;
 
 fn get_board_bundle(board: Handle<Image>) -> impl Bundle {
-    (DisplayBoard, ImageNode::new(board), ZIndex(1))
+    (DisplayBoard, ImageNode::new(board), ZIndex(-1))
 }
 
 #[derive(Component)]
@@ -301,7 +374,7 @@ fn setup(
             .with_children(|p| {
                 p.spawn(get_board_bundle(handles.board.clone()));
                 for lamp in &level.lamps {
-                    let entity = p.spawn(get_lamp_bundle(lamp)).id();
+                    let entity = p.spawn(get_lamp_bundle(lamp, &handles)).id();
                     mapper.insert(lamp.id, entity);
                 }
                 for spawner in &level.spawners {
@@ -392,13 +465,19 @@ fn on_signal_route_action(event: On<SignalRouteMenuEvent>, mut requests: Message
 
 fn lamp_updates(
     mut lamp_updates: MessageReader<LampUpdate>,
-    mut query: Query<(&mut BackgroundColor, &Lamp)>,
+    lamps: Query<(&Lamp, &Children)>,
+    mut backlights: Query<&mut BackgroundColor, With<Backlight>>,
     lamp_mapper: Res<LampMapper>,
 ) {
     for update in lamp_updates.read() {
         if let Some(&entity) = lamp_mapper.get(&update.lamp_id) {
-            let (mut color, lamp) = query.get_mut(entity).expect("invalid lamp entity");
-            *color = lamp.get_color(update.state).into();
+            let (lamp, children) = lamps.get(entity).expect("invalid lamp entity");
+            let new_color: Color = lamp.get_color(update.state);
+            for child in children.iter() {
+                if let Ok(mut color) = backlights.get_mut(child) {
+                    *color = new_color.into();
+                }
+            }
         }
     }
 }

@@ -1,28 +1,18 @@
-mod assets;
-mod audio;
-mod common;
-mod debug_overlay;
-mod display;
-mod dropdown_menu;
-mod level;
-mod simulation;
-mod time_controls;
-
-use assets::AssetLoadingPlugin;
-use audio::AudioPlugin;
 use bevy::asset::AssetPlugin;
 use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin, FrameTimeGraphConfig};
 use bevy::prelude::*;
 use bevy::window::ExitCondition;
-use debug_overlay::DebugOverlayPlugin;
-use display::DisplayPlugin;
-use dropdown_menu::DropdownPlugin;
-use level::LevelPlugin;
-use simulation::block::MapPlugin;
-use simulation::spawner::SpawnerPlugin;
-use simulation::station::StationPlugin;
-use simulation::train::TrainPlugin;
-use time_controls::TimeControlsPlugin;
+use rail_dispatch::assets::AssetLoadingPlugin;
+use rail_dispatch::audio::AudioPlugin;
+use rail_dispatch::debug_overlay::DebugOverlayPlugin;
+use rail_dispatch::display::DisplayPlugin;
+use rail_dispatch::dropdown_menu::DropdownPlugin;
+use rail_dispatch::level::LevelPlugin;
+use rail_dispatch::simulation::block::MapPlugin;
+use rail_dispatch::simulation::spawner::SpawnerPlugin;
+use rail_dispatch::simulation::station::StationPlugin;
+use rail_dispatch::simulation::train::TrainPlugin;
+use rail_dispatch::time_controls::TimeControlsPlugin;
 
 fn main() {
     App::new()
