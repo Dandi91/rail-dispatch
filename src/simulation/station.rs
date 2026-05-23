@@ -7,6 +7,7 @@ use crate::simulation::signal::SignalAspect;
 use crate::simulation::sparse_vec::{Chunkable, SparseVec};
 use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
+use std::iter::once;
 
 #[derive(Message)]
 pub struct SwitchUpdate {
@@ -201,7 +202,12 @@ impl StationMap {
 
         let route_blocks: HashMap<RouteId, HashSet<BlockId>> = routes
             .iter()
-            .map(|r| (r.id, r.block_ids.iter().copied().collect()))
+            .map(|r| {
+                (
+                    r.id,
+                    r.block_ids.iter().copied().chain(once(r.target_block_id)).collect(),
+                )
+            })
             .collect();
 
         let conflicting_routes: HashMap<RouteId, Vec<RouteId>> = route_blocks
