@@ -9,7 +9,6 @@ use std::time::Instant;
 pub type TrainId = u32;
 pub type BlockId = u32;
 pub type SignalId = u32;
-pub type LampId = u32;
 pub type SwitchId = u32;
 pub type SectionId = u32;
 pub type StationId = u32;

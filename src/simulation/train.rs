@@ -15,22 +15,28 @@ pub enum TrainMoveKind {
 pub struct TrainMove {
     pub block_id: BlockId,
     pub train_id: TrainId,
+    pub direction: Direction,
+    pub number: String,
     pub kind: TrainMoveKind,
 }
 
 impl TrainMove {
-    pub fn entered(block_id: BlockId, train_id: TrainId) -> Self {
+    pub fn entered(block_id: BlockId, train: &Train) -> Self {
         TrainMove {
             block_id,
-            train_id,
+            train_id: train.id,
+            direction: train.direction,
+            number: train.number.clone(),
             kind: TrainMoveKind::Entered,
         }
     }
 
-    pub fn exited(block_id: BlockId, train_id: TrainId) -> Self {
+    pub fn exited(block_id: BlockId, train: &Train) -> Self {
         TrainMove {
             block_id,
-            train_id,
+            train_id: train.id,
+            direction: train.direction,
+            number: train.number.clone(),
             kind: TrainMoveKind::Exited,
         }
     }
@@ -177,6 +183,14 @@ impl Train {
         self.speed_mps.kmh()
     }
 
+    pub fn head_block(&self) -> BlockId {
+        self.front_position.block_id
+    }
+
+    pub fn direction(&self) -> Direction {
+        self.direction
+    }
+
     pub fn get_target_speed_kmh(&self) -> f64 {
         self.target_speed_mps.kmh()
     }
@@ -310,11 +324,11 @@ impl Train {
         if dx > 0.0 {
             let new_front = map.step_by(&self.front_position, dx, self.direction);
             if self.front_position.block_id != new_front.block_id {
-                train_moves.write(TrainMove::entered(new_front.block_id, self.id));
+                train_moves.write(TrainMove::entered(new_front.block_id, self));
             }
             let new_back = map.step_by(&self.front_position, self.stats.length_m, self.direction.reverse());
             if self.back_position.block_id != new_back.block_id {
-                train_moves.write(TrainMove::exited(self.back_position.block_id, self.id));
+                train_moves.write(TrainMove::exited(self.back_position.block_id, self));
             }
             self.front_position = new_front;
             self.back_position = new_back;
@@ -386,7 +400,9 @@ fn despawn_trains(
         if let Some(entity) = mapper.remove(&request.id) {
             let train = query.get(entity).expect("invalid train entity");
             info!("Train {} despawned with ID {}", train.number, train.id);
-            block_map.despawn_train(request.id, &mut train_moves);
+            if let Some(blocks) = block_map.get_train_blocks(train.id) {
+                train_moves.write_batch(blocks.iter().map(|&b| TrainMove::exited(b, train)));
+            }
             commands.entity(entity).despawn();
         }
     }
@@ -402,31 +418,31 @@ fn spawn_trains(
 ) {
     for spawn in requests.read() {
         let stats = get_train_stats(&spawn.vehicles);
+        let length_m = stats.length_m;
         let trace: Vec<TrackPoint> = block_map
-            .walk(&spawn.position, stats.length_m.max(1.0), spawn.direction.reverse())
+            .walk(&spawn.position, length_m.max(1.0), spawn.direction.reverse())
             .collect();
 
         let train_id = train_id.next();
-        train_moves.write_batch(trace.iter().map(|point| TrainMove::entered(point.block_id, train_id)));
+        let train = Train {
+            id: train_id,
+            number: spawn.number.clone(),
+            direction: spawn.direction,
+            stats,
+            vehicles: spawn.vehicles.clone(),
+            top_speed_kmh: spawn.top_speed_kmh,
+            speed_mps: spawn.actual_speed_kmh.mps(),
+            front_position: spawn.position.clone(),
+            back_position: trace.last().cloned().expect("at least one track point"),
+            ..default()
+        };
+        train_moves.write_batch(trace.iter().map(|point| TrainMove::entered(point.block_id, &train)));
 
         info!(
             "Train {} spawned with ID {}, length {}",
-            spawn.number, train_id, stats.length_m
+            spawn.number, train_id, length_m
         );
-        let entity = commands
-            .spawn(Train {
-                id: train_id,
-                number: spawn.number.clone(),
-                direction: spawn.direction,
-                stats,
-                vehicles: spawn.vehicles.clone(),
-                top_speed_kmh: spawn.top_speed_kmh,
-                speed_mps: spawn.actual_speed_kmh.mps(),
-                front_position: spawn.position.clone(),
-                back_position: trace.last().cloned().expect("at least one track point"),
-                ..default()
-            })
-            .id();
+        let entity = commands.spawn(train).id();
         mapper.insert(train_id, entity);
     }
 }

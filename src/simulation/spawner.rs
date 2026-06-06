@@ -2,7 +2,7 @@ use crate::assets::{AssetHandles, LoadingState};
 use crate::audio::AudioEvent;
 use crate::common::{BlockId, Direction, TrainId};
 use crate::level::{Level, SpawnerKind};
-use crate::simulation::block::{BlockMap, SignalUpdate, SignalUpdateState, TrackPoint};
+use crate::simulation::block::{BlockMap, SignalUpdate, SignalUpdateSource, TrackPoint};
 use crate::simulation::signal::SignalAspect;
 use crate::simulation::train::{
     RailVehicle, TrainDespawnRequest, TrainMove, TrainMoveKind, TrainSpawnRequest, get_random_train_number,
@@ -147,7 +147,7 @@ fn init(
                 if let Some(signal) = block_map.find_signal(block.id, end_direction) {
                     signal_updates.write(SignalUpdate::new(
                         signal.id,
-                        SignalUpdateState::SignalPropagation(SignalAspect::Unrestricting),
+                        SignalUpdateSource::SignalPropagation(SignalAspect::Unrestricting),
                     ));
                 }
             }

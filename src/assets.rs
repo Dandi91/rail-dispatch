@@ -70,13 +70,6 @@ pub enum LoadingState {
 #[derive(Resource)]
 pub struct AssetHandles {
     pub level: Handle<Level>,
-    pub board: Handle<Image>,
-    pub cover_block_left: Handle<Image>,
-    pub cover_block_mid: Handle<Image>,
-    pub cover_block_right: Handle<Image>,
-    pub cover_signal_left: Handle<Image>,
-    pub cover_signal_mid: Handle<Image>,
-    pub cover_signal_right: Handle<Image>,
 }
 
 #[derive(Resource)]
@@ -101,13 +94,6 @@ fn setup_assets(mut commands: Commands, asset_server: Res<AssetServer>) {
     let (barrier, guard) = AssetBarrier::new();
     commands.insert_resource(AssetHandles {
         level: asset_server.load_acquire("level.toml", guard.clone()),
-        board: asset_server.load_acquire("board.png", guard.clone()),
-        cover_block_left: asset_server.load_acquire("covers/block_left.png", guard.clone()),
-        cover_block_mid: asset_server.load_acquire("covers/block_mid.png", guard.clone()),
-        cover_block_right: asset_server.load_acquire("covers/block_right.png", guard.clone()),
-        cover_signal_left: asset_server.load_acquire("covers/signal_left.png", guard.clone()),
-        cover_signal_mid: asset_server.load_acquire("covers/signal_mid.png", guard.clone()),
-        cover_signal_right: asset_server.load_acquire("covers/signal_right.png", guard.clone()),
     });
     commands.insert_resource(SoundHandles {
         beep: asset_server.load("sounds/beep.wav"),

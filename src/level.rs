@@ -1,5 +1,5 @@
 use crate::common::{
-    BlockId, Direction, HexColor, LampId, RouteId, SectionId, SignalId, SignalType, StationId, SwitchId, SwitchPosition,
+    BlockId, Direction, HexColor, RouteId, SectionId, SignalId, SignalType, StationId, SwitchId, SwitchPosition,
 };
 use bevy::{asset::AssetLoader, asset::LoadContext, asset::io::Reader, prelude::*};
 use futures_lite::AsyncReadExt;
@@ -8,7 +8,6 @@ use thiserror::Error;
 
 #[derive(Deserialize, Asset, Reflect)]
 pub struct Level {
-    pub lamps: Vec<LampData>,
     pub blocks: Vec<BlockData>,
     pub connections: Vec<ConnectionData>,
     pub switches: Vec<SwitchData>,
@@ -18,24 +17,23 @@ pub struct Level {
     pub sections: Vec<SectionData>,
     #[serde(default)]
     pub stations: Vec<StationData>,
+    #[serde(default)]
+    pub geometry: Vec<BlockGeometry>,
     pub background: HexColor,
 }
 
-#[derive(Deserialize, Reflect, Clone)]
-pub struct LampData {
-    pub id: LampId,
-    pub x: i32,
-    pub y: i32,
-    pub width: i32,
-    #[serde(default)]
-    pub rotation: i32,
+/// Schematic geometry for a block: a polyline (in level pixel space) along which the
+/// block's track is drawn. The panel renderer maps this to world space.
+#[derive(Deserialize, Reflect)]
+pub struct BlockGeometry {
+    pub id: BlockId,
+    pub points: Vec<Vec2>,
 }
 
 #[derive(Deserialize, Reflect)]
 pub struct BlockData {
     pub id: BlockId,
     pub length: f64,
-    pub lamp_id: LampId,
 }
 
 #[derive(Deserialize, Reflect)]
@@ -78,7 +76,6 @@ pub struct SpawnerData {
 #[derive(Deserialize, Reflect)]
 pub struct SignalData {
     pub id: SignalId,
-    pub lamp_id: LampId,
     pub block_id: BlockId,
     pub offset_m: f64,
     pub name: String,

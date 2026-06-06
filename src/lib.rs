@@ -1,10 +1,8 @@
 pub mod assets;
 pub mod audio;
-pub mod board_baker;
 pub mod common;
-pub mod debug_overlay;
-pub mod display;
 pub mod dropdown_menu;
 pub mod level;
+pub mod panel;
 pub mod simulation;
 pub mod time_controls;

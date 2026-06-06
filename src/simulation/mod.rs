@@ -1,5 +1,5 @@
 pub mod block;
-mod signal;
+pub mod signal;
 mod sparse_vec;
 pub mod spawner;
 pub mod station;

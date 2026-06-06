@@ -1,6 +1,6 @@
 [package]
 name = "rail-dispatch"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Aleksandr Andreev <dandi.vlg@gmail.com>"]
 edition = "2024"
 
@@ -25,6 +25,7 @@ features = [
     "bevy_input_focus",
     "bevy_log",
     "bevy_picking",
+    "mesh_picking",
     "bevy_state",
     "multi_threaded",
     "std",
@@ -35,6 +36,8 @@ features = [
     # render
     "bevy_core_pipeline",
     "bevy_render",
+    "bevy_sprite",
+    "bevy_sprite_render",
     "wayland",
     "webgl2",
     "x11",

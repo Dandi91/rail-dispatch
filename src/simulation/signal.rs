@@ -1,4 +1,4 @@
-use crate::common::{BlockId, Direction, LampId, SignalId, SignalType};
+use crate::common::{BlockId, Direction, SignalId, SignalType};
 use crate::level::SignalData;
 use crate::simulation::block::TrackPoint;
 use crate::simulation::sparse_vec::{Chunkable, SparseVec};
@@ -158,7 +158,6 @@ impl SpeedControl {
 pub struct TrackSignal {
     pub id: SignalId,
     pub position: TrackPoint,
-    pub lamp_id: LampId,
     pub direction: Direction,
     pub name: String,
     pub speed_ctrl: SpeedControl,
@@ -173,7 +172,6 @@ impl From<&SignalData> for TrackSignal {
                 block_id: value.block_id,
                 offset_m: value.offset_m,
             },
-            lamp_id: value.lamp_id,
             direction: value.direction,
             name: value.name.clone(),
             signal_type: value.signal_type,

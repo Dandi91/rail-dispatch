@@ -1,13 +1,13 @@
 use bevy::asset::AssetPlugin;
 use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin, FrameTimeGraphConfig};
+use bevy::picking::mesh_picking::MeshPickingPlugin;
 use bevy::prelude::*;
 use bevy::window::ExitCondition;
 use rail_dispatch::assets::AssetLoadingPlugin;
 use rail_dispatch::audio::AudioPlugin;
-use rail_dispatch::debug_overlay::DebugOverlayPlugin;
-use rail_dispatch::display::DisplayPlugin;
 use rail_dispatch::dropdown_menu::DropdownPlugin;
 use rail_dispatch::level::LevelPlugin;
+use rail_dispatch::panel::PanelPlugin;
 use rail_dispatch::simulation::block::MapPlugin;
 use rail_dispatch::simulation::spawner::SpawnerPlugin;
 use rail_dispatch::simulation::station::StationPlugin;
@@ -44,12 +44,12 @@ fn main() {
             },
         ))
         .add_plugins((
-            DebugOverlayPlugin,
+            MeshPickingPlugin,
             DropdownPlugin,
             LevelPlugin,
             AssetLoadingPlugin,
             TimeControlsPlugin,
-            DisplayPlugin,
+            PanelPlugin,
             AudioPlugin,
             TrainPlugin,
             SpawnerPlugin,
