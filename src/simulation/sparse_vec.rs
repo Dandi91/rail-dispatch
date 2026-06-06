@@ -144,8 +144,10 @@ impl<T: Chunkable> IndexMut<u32> for SparseVec<T> {
 
 impl<T: Chunkable> FromIterator<T> for SparseVec<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        let mut vec = Self::default();
-        vec.items = iter.into_iter().sorted_by_key(|item| item.get_id()).collect();
+        let mut vec = SparseVec {
+            items: iter.into_iter().sorted_by_key(|item| item.get_id()).collect(),
+            ..Default::default()
+        };
         vec.rebuild_chunks();
         vec
     }

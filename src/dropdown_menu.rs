@@ -83,12 +83,12 @@ pub trait DropDownMenu: Component + Sized {
         }
 
         let (entity, vis, context_menu) = menu.deref_mut();
-        if let Ok(item) = items.get(event.entity) {
-            if let Some(target) = context_menu.target {
-                commands.trigger(item.create_event(target));
-                event.propagate(false);
-                context_menu.target = None;
-            }
+        if let Ok(item) = items.get(event.entity)
+            && let Some(target) = context_menu.target
+        {
+            commands.trigger(item.create_event(target));
+            event.propagate(false);
+            context_menu.target = None;
         }
 
         commands.entity(*entity).despawn_children();

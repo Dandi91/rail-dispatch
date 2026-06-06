@@ -122,6 +122,12 @@ impl Profiler {
     }
 }
 
+impl Default for Profiler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Drop for Profiler {
     fn drop(&mut self) {
         println!("Scope took {} us", self.now.elapsed().as_micros());
