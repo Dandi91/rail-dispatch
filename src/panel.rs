@@ -19,7 +19,7 @@
 //! - The train describer is a number label anchored near the head block's leading end; it
 //!   jumps from block to block on `TrainMove` as the head advances (it never slides).
 
-use crate::assets::{AssetHandles, LoadingState};
+use crate::assets::{AssetHandles, FontHandles, LoadingState};
 use crate::common::{BlockId, Direction, RouteId, SignalId, SignalType, TrainId};
 use crate::dropdown_menu::DropDownMenu;
 use crate::level::Level;
@@ -32,7 +32,7 @@ use bevy::ecs::system::{SystemParam, SystemParamItem};
 use bevy::input::keyboard::Key;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::prelude::*;
-use bevy::text::TextBackgroundColor;
+use bevy::text::TextLayoutInfo;
 use std::collections::HashMap;
 use std::ops::DerefMut;
 
@@ -41,9 +41,13 @@ const SCALE: f32 = 4.0;
 const TRACK_THICKNESS: f32 = 3.0;
 const SIGNAL_SIZE: f32 = 9.0;
 const SPAWNER_SIZE: f32 = 9.0;
-/// Describer placement, in world units: inset back from the leading block end (along the
-/// track). The plate sits centred on the track line (no perpendicular offset).
+/// Describer placement: inset back from the leading block end (along the track). Expressed in
+/// screen units — scaled by the camera zoom each frame so the on-screen gap is constant. The
+/// plate sits centred on the track line (no perpendicular offset).
 const DESCRIBER_INSET: f32 = 28.0;
+/// Padding (in text-logical units, i.e. "pixels") added on every side around the describer
+/// text to size its background plate.
+const DESCRIBER_PADDING: f32 = 2.0;
 
 const TRACK_Z: f32 = 0.0;
 const SIGNAL_Z: f32 = 2.0;
@@ -58,7 +62,7 @@ const SPAWNER_COLOR: Color = Color::srgb(0.85, 0.85, 0.88);
 const SIGNAL_GREEN: Color = Color::srgb(0.10, 0.85, 0.22);
 const SIGNAL_CLOSED: Color = Color::srgb(0.60, 0.16, 0.16);
 const DESCRIBER_TEXT: Color = Color::srgb(0.95, 0.96, 1.0);
-const DESCRIBER_BG: Color = Color::srgb(0.10, 0.11, 0.13);
+const DESCRIBER_BG: Color = Color::srgb(0.30, 0.31, 0.33);
 
 // ----------------------------------------------------------------------------------
 // Geometry
@@ -114,19 +118,22 @@ impl TrackGeometry {
         Some((b - a).normalize_or_zero())
     }
 
-    /// Anchor for the train describer: inset back from the block's leading end (the end in
-    /// the train's direction of travel), centred on the track line (no perpendicular offset).
-    fn describer_anchor(&self, id: BlockId, direction: Direction) -> Option<Vec2> {
+    /// Anchor for the train describer: the block's leading end (the end in the train's
+    /// direction of travel) and the unit vector pointing back into the block. The label sits at
+    /// `leading + interior * DESCRIBER_INSET * zoom` (applied per-frame in [`position_describers`])
+    /// so its on-screen gap from the block end is constant. Centred on the track line (no
+    /// perpendicular offset). For a degenerate (zero-length) block, `interior` is zero and the
+    /// label rests at the midpoint.
+    fn describer_anchor(&self, id: BlockId, direction: Direction) -> Option<(Vec2, Vec2)> {
         let (first, last) = self.endpoints(id)?;
         let forward = (last - first).normalize_or_zero();
         if forward == Vec2::ZERO {
-            return Some((first + last) / 2.0);
+            return Some(((first + last) / 2.0, Vec2::ZERO));
         }
-        let (leading, interior) = match direction {
+        Some(match direction {
             Direction::Even => (last, -forward),
             Direction::Odd => (first, forward),
-        };
-        Some(leading + interior * DESCRIBER_INSET)
+        })
     }
 }
 
@@ -146,6 +153,20 @@ struct SpawnerMarker(BlockId);
 #[derive(Component)]
 struct DescriberLabel;
 
+/// A describer's placement input: the block's leading end and the unit vector pointing back
+/// into the block. [`position_describers`] reads this each frame to set the label's translation
+/// to `leading + interior * DESCRIBER_INSET * zoom`, keeping the on-screen offset constant.
+#[derive(Component)]
+struct DescriberAnchor {
+    leading: Vec2,
+    interior: Vec2,
+}
+
+/// Background plate behind a [`DescriberLabel`], spawned as its child and sized from the
+/// label's laid-out text plus [`DESCRIBER_PADDING`] on every side.
+#[derive(Component)]
+struct DescriberBackground;
+
 #[derive(Component)]
 struct PanelTooltip;
 
@@ -157,6 +178,15 @@ struct Describers(HashMap<TrainId, Entity>);
 /// so recolouring a block is a single material write. Built by the schematic layer.
 #[derive(Resource, Default)]
 struct BlockMaterials(HashMap<BlockId, Handle<ColorMaterial>>);
+
+/// The two shared signal-glyph materials, one per aspect. All glyphs reference one of these
+/// (no per-entity materials), so they batch by aspect; recolouring a glyph swaps its
+/// `MeshMaterial2d` handle rather than mutating a per-entity material.
+#[derive(Resource)]
+struct SignalMaterials {
+    closed: Handle<ColorMaterial>,
+    green: Handle<ColorMaterial>,
+}
 
 /// Panel-side display state per block, updated incrementally by messages (never polled).
 #[derive(Resource, Default)]
@@ -312,6 +342,10 @@ pub fn setup_schematic(
         Vec2::new(-SIGNAL_SIZE * 0.6, SIGNAL_SIZE * 0.75),
         Vec2::new(-SIGNAL_SIZE * 0.6, -SIGNAL_SIZE * 0.75),
     ));
+    let signal_materials = SignalMaterials {
+        closed: materials.add(ColorMaterial::from_color(SIGNAL_CLOSED)),
+        green: materials.add(ColorMaterial::from_color(SIGNAL_GREEN)),
+    };
 
     // --- track segments (all segments of a block share one material for cheap recolour) ---
     let mut block_materials: HashMap<BlockId, Handle<ColorMaterial>> = HashMap::new();
@@ -378,7 +412,7 @@ pub fn setup_schematic(
         commands.spawn((
             SignalGlyph(s.id),
             Mesh2d(tri.clone()),
-            MeshMaterial2d(materials.add(ColorMaterial::from_color(SIGNAL_CLOSED))),
+            MeshMaterial2d(signal_materials.closed.clone()),
             Transform {
                 translation: node.extend(SIGNAL_Z),
                 rotation: Quat::from_rotation_z(angle),
@@ -391,6 +425,7 @@ pub fn setup_schematic(
 
     commands.insert_resource(geometry);
     commands.insert_resource(BlockMaterials(block_materials));
+    commands.insert_resource(signal_materials);
 }
 
 // ----------------------------------------------------------------------------------
@@ -417,6 +452,8 @@ impl Plugin for PanelPlugin {
                     apply_route_pending,
                     apply_signal_aspects,
                     apply_train_describers,
+                    position_describers,
+                    size_describer_backgrounds,
                     despawn_describers,
                 )
                     .run_if(in_state(LoadingState::Instantiated)),
@@ -475,6 +512,8 @@ fn setup_spawners(
     use crate::level::SpawnerKind;
     let level = levels.get(&handles.level).expect("level had been loaded");
     let marker_mesh = meshes.add(Rectangle::new(SPAWNER_SIZE, SPAWNER_SIZE));
+    // All spawner markers share one mesh and one material (same colour, never recoloured).
+    let marker_material = materials.add(ColorMaterial::from_color(SPAWNER_COLOR));
     let mut spawner_entities: Vec<Entity> = Vec::new();
 
     for data in &level.spawners {
@@ -499,7 +538,7 @@ fn setup_spawners(
             .spawn((
                 SpawnerMarker(data.block_id),
                 Mesh2d(marker_mesh.clone()),
-                MeshMaterial2d(materials.add(ColorMaterial::from_color(SPAWNER_COLOR))),
+                MeshMaterial2d(marker_material.clone()),
                 Transform::from_translation(pos.extend(SPAWNER_Z)),
                 ScreenScale::Uniform,
                 Pickable::default(),
@@ -561,20 +600,19 @@ fn apply_route_pending(
 /// for automatic signals match no glyph and are ignored.
 fn apply_signal_aspects(
     mut changes: MessageReader<SignalAspectChanged>,
-    query: Query<(&SignalGlyph, &MeshMaterial2d<ColorMaterial>)>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    query: Query<(Entity, &SignalGlyph)>,
+    signal_materials: Res<SignalMaterials>,
+    mut commands: Commands,
 ) {
     for change in changes.read() {
-        let color = if change.aspect == SignalAspect::Forbidding {
-            SIGNAL_CLOSED
+        let material = if change.aspect == SignalAspect::Forbidding {
+            &signal_materials.closed
         } else {
-            SIGNAL_GREEN
+            &signal_materials.green
         };
-        for (glyph, material) in &query {
-            if glyph.0 == change.signal_id
-                && let Some(mat) = materials.get_mut(&material.0)
-            {
-                mat.color = color;
+        for (entity, glyph) in &query {
+            if glyph.0 == change.signal_id {
+                commands.entity(entity).insert(MeshMaterial2d(material.clone()));
             }
         }
     }
@@ -603,18 +641,20 @@ fn get_describer_block(update: &TrackUpdate) -> BlockId {
 fn apply_train_describers(
     mut updates: MessageReader<TrackUpdate>,
     geometry: Res<TrackGeometry>,
+    fonts: Res<FontHandles>,
     mut describers: ResMut<Describers>,
-    mut labels: Query<(&mut Transform, &mut Text2d)>,
+    mut labels: Query<(&mut DescriberAnchor, &mut Text2d)>,
     mut commands: Commands,
 ) {
     for update in updates.read().filter(|u| u.state == TrackState::Occupied) {
         let block = get_describer_block(update);
-        let Some(pos) = geometry.describer_anchor(block, update.train_direction) else {
+        let Some((leading, interior)) = geometry.describer_anchor(block, update.train_direction) else {
             continue;
         };
         if let Some(&entity) = describers.0.get(&update.train_id) {
-            if let Ok((mut transform, mut text)) = labels.get_mut(entity) {
-                transform.translation = pos.extend(DESCRIBER_Z);
+            if let Ok((mut anchor, mut text)) = labels.get_mut(entity) {
+                anchor.leading = leading;
+                anchor.interior = interior;
                 if text.0 != update.train_number {
                     text.0 = update.train_number.clone();
                 }
@@ -623,15 +663,59 @@ fn apply_train_describers(
             let entity = commands
                 .spawn((
                     DescriberLabel,
+                    DescriberAnchor { leading, interior },
                     Text2d::new(update.train_number.clone()),
-                    TextFont::from_font_size(14.0),
+                    TextFont {
+                        font: fonts.mono.clone(),
+                        font_size: 14.0,
+                        ..default()
+                    },
                     TextColor(DESCRIBER_TEXT),
-                    TextBackgroundColor(DESCRIBER_BG),
-                    Transform::from_translation(pos.extend(DESCRIBER_Z)),
+                    // Initial position; refined to the zoom-scaled offset by position_describers.
+                    Transform::from_translation(leading.extend(DESCRIBER_Z)),
                     ScreenScale::Uniform,
+                ))
+                .with_child((
+                    DescriberBackground,
+                    Sprite::from_color(DESCRIBER_BG, Vec2::ZERO),
+                    Transform::from_xyz(0.0, 0.0, -0.1),
                 ))
                 .id();
             describers.0.insert(update.train_id, entity);
+        }
+    }
+}
+
+/// Places each describer at `leading + interior * DESCRIBER_INSET * zoom` so the gap between the
+/// label and the block end stays constant on screen as the camera zooms (the label itself is
+/// screen-scaled too). Runs every frame because the position depends on the camera scale.
+fn position_describers(
+    camera: Option<Single<&Projection, With<Camera2d>>>,
+    mut query: Query<(&mut Transform, &DescriberAnchor)>,
+) {
+    let Some(projection) = camera else { return };
+    let Projection::Orthographic(ortho) = projection.into_inner() else {
+        return;
+    };
+    let s = ortho.scale;
+    for (mut transform, anchor) in &mut query {
+        let pos = anchor.leading + anchor.interior * DESCRIBER_INSET * s;
+        transform.translation.x = pos.x;
+        transform.translation.y = pos.y;
+    }
+}
+
+/// Keeps each describer's background plate sized to its laid-out text plus
+/// [`DESCRIBER_PADDING`] on every side. Runs whenever the text layout changes (creation or
+/// train-number change).
+fn size_describer_backgrounds(
+    labels: Query<&TextLayoutInfo, (With<DescriberLabel>, Changed<TextLayoutInfo>)>,
+    mut backgrounds: Query<(&mut Sprite, &ChildOf), With<DescriberBackground>>,
+) {
+    for (mut sprite, child_of) in &mut backgrounds {
+        // `get` honours the `Changed` filter, so only plates whose label re-laid out update.
+        if let Ok(layout) = labels.get(child_of.parent()) {
+            sprite.custom_size = Some(layout.size + Vec2::new(2.0 * DESCRIBER_PADDING, DESCRIBER_PADDING));
         }
     }
 }

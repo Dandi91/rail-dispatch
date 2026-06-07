@@ -73,6 +73,12 @@ pub struct AssetHandles {
 }
 
 #[derive(Resource)]
+pub struct FontHandles {
+    /// DejaVu Sans Mono — used for the dispatcher describer labels.
+    pub mono: Handle<Font>,
+}
+
+#[derive(Resource)]
 pub struct SoundHandles {
     pub beep: Handle<AudioSource>,
     pub error: Handle<AudioSource>,
@@ -94,6 +100,9 @@ fn setup_assets(mut commands: Commands, asset_server: Res<AssetServer>) {
     let (barrier, guard) = AssetBarrier::new();
     commands.insert_resource(AssetHandles {
         level: asset_server.load_acquire("level.toml", guard.clone()),
+    });
+    commands.insert_resource(FontHandles {
+        mono: asset_server.load("fonts/DejaVuSansMono.ttf"),
     });
     commands.insert_resource(SoundHandles {
         beep: asset_server.load("sounds/beep.wav"),
