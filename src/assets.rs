@@ -99,7 +99,7 @@ impl Plugin for AssetLoadingPlugin {
 fn setup_assets(mut commands: Commands, asset_server: Res<AssetServer>) {
     let (barrier, guard) = AssetBarrier::new();
     commands.insert_resource(AssetHandles {
-        level: asset_server.load_acquire("level.toml", guard.clone()),
+        level: asset_server.load_builder().with_guard(guard.clone()).load("level.toml"),
     });
     commands.insert_resource(FontHandles {
         mono: asset_server.load("fonts/DejaVuSansMono.ttf"),

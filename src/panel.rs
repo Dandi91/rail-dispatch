@@ -218,7 +218,7 @@ fn paint_block(
     materials: &mut Assets<ColorMaterial>,
 ) {
     if let Some(handle) = block_materials.0.get(&block_id)
-        && let Some(material) = materials.get_mut(handle)
+        && let Some(mut material) = materials.get_mut(handle)
     {
         material.color = vis.color();
     }
@@ -666,8 +666,8 @@ fn apply_train_describers(
                     DescriberAnchor { leading, interior },
                     Text2d::new(update.train_number.clone()),
                     TextFont {
-                        font: fonts.mono.clone(),
-                        font_size: 14.0,
+                        font: fonts.mono.clone().into(),
+                        font_size: FontSize::Px(14.0),
                         ..default()
                     },
                     TextColor(DESCRIBER_TEXT),
