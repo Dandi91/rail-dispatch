@@ -37,17 +37,17 @@ use std::collections::HashMap;
 use std::ops::DerefMut;
 
 /// Pixel-space (level) → world-space scale factor.
-const SCALE: f32 = 4.0;
-const TRACK_THICKNESS: f32 = 3.0;
+pub const SCALE: f32 = 4.0;
+pub const TRACK_THICKNESS: f32 = 3.0;
 const SIGNAL_SIZE: f32 = 9.0;
 const SPAWNER_SIZE: f32 = 9.0;
 /// Describer placement: inset back from the leading block end (along the track). Expressed in
 /// screen units — scaled by the camera zoom each frame so the on-screen gap is constant. The
 /// plate sits centred on the track line (no perpendicular offset).
-const DESCRIBER_INSET: f32 = 28.0;
+pub const DESCRIBER_INSET: f32 = 28.0;
 /// Padding (in text-logical units, i.e. "pixels") added on every side around the describer
 /// text to size its background plate.
-const DESCRIBER_PADDING: f32 = 2.0;
+pub const DESCRIBER_PADDING: f32 = 4.0;
 
 const TRACK_Z: f32 = 0.0;
 const SIGNAL_Z: f32 = 2.0;
@@ -68,14 +68,17 @@ const DESCRIBER_BG: Color = Color::srgb(0.30, 0.31, 0.33);
 // Geometry
 // ----------------------------------------------------------------------------------
 
-/// Per-block track polylines, in world space.
-#[derive(Resource, Default)]
-pub struct TrackGeometry {
-    polylines: HashMap<BlockId, Vec<Vec2>>,
+/// Mapping between level **pixel space** (y-down, the `level.toml` save format) and the panel's
+/// **world space** (y-up). Centred on the geometry's bounding-box midpoint and scaled by [`SCALE`].
+/// The map editor uses this to round-trip cursor positions back into pixel space.
+#[derive(Resource, Clone, Copy)]
+pub struct TrackTransform {
+    /// Bounding-box midpoint of all geometry points, in pixel space.
+    pub center: Vec2,
 }
 
-impl TrackGeometry {
-    fn from_level(level: &Level) -> Self {
+impl TrackTransform {
+    pub fn from_level(level: &Level) -> Self {
         let mut min = Vec2::splat(f32::INFINITY);
         let mut max = Vec2::splat(f32::NEG_INFINITY);
         for bg in &level.geometry {
@@ -89,17 +92,34 @@ impl TrackGeometry {
         } else {
             Vec2::ZERO
         };
+        Self { center }
+    }
 
+    /// Pixel space (y-down) → world space (y-up).
+    pub fn pixel_to_world(&self, p: Vec2) -> Vec2 {
+        Vec2::new((p.x - self.center.x) * SCALE, (self.center.y - p.y) * SCALE)
+    }
+
+    /// World space (y-up) → pixel space (y-down). Inverse of [`Self::pixel_to_world`].
+    pub fn world_to_pixel(&self, w: Vec2) -> Vec2 {
+        Vec2::new(w.x / SCALE + self.center.x, self.center.y - w.y / SCALE)
+    }
+}
+
+/// Per-block track polylines, in world space.
+#[derive(Resource, Default)]
+pub struct TrackGeometry {
+    polylines: HashMap<BlockId, Vec<Vec2>>,
+}
+
+impl TrackGeometry {
+    fn from_level(level: &Level) -> Self {
+        let transform = TrackTransform::from_level(level);
         let polylines = level
             .geometry
             .iter()
             .map(|bg| {
-                let pts = bg
-                    .points
-                    .iter()
-                    // flip Y: level pixel space is y-down, world is y-up
-                    .map(|p| Vec2::new((p.x - center.x) * SCALE, (center.y - p.y) * SCALE))
-                    .collect();
+                let pts = bg.points.iter().map(|p| transform.pixel_to_world(*p)).collect();
                 (bg.id, pts)
             })
             .collect();
@@ -237,12 +257,24 @@ const MAX_SCALE: f32 = 8.0;
 /// projection's `scale` (world units per pixel): on-screen size is `world / scale`, so we
 /// hold size constant by setting world size to `base * scale`.
 #[derive(Component, Clone, Copy)]
-enum ScreenScale {
+pub enum ScreenScale {
     /// Uniform glyph/label: scaled by the zoom factor on every axis.
     Uniform,
     /// A line whose length follows the world (zooms) but whose thickness stays
     /// screen-constant (e.g. track segments).
     LineThickness { length: f32, thickness: f32 },
+}
+
+/// Spawns the 2D camera and drives [`ScreenScale`] entities. Split out of [`SchematicPlugin`]
+/// so the map editor (which renders its own editable layer instead of the static schematic) can
+/// reuse the camera and screen-constant sizing without the static track draw.
+pub struct ScreenScalePlugin;
+
+impl Plugin for ScreenScalePlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Startup, spawn_camera)
+            .add_systems(Update, apply_screen_scale);
+    }
 }
 
 /// Adds world-space camera pan/zoom input (wheel zoom, middle-drag pan). [`apply_screen_scale`]
@@ -314,9 +346,8 @@ pub struct SchematicPlugin;
 
 impl Plugin for SchematicPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_camera)
-            .add_systems(OnExit(LoadingState::Loading), setup_schematic)
-            .add_systems(Update, apply_screen_scale);
+        app.add_plugins(ScreenScalePlugin)
+            .add_systems(OnExit(LoadingState::Loading), setup_schematic);
     }
 }
 
@@ -337,10 +368,13 @@ pub fn setup_schematic(
     *clear_color = ClearColor(BG_COLOR);
 
     let unit_rect = meshes.add(Rectangle::new(1.0, 1.0));
+    // Base on the local origin (x=0), apex forward (+x): placed at the block boundary, the base
+    // sits on the separation line and the triangle points along the governed direction, clear of
+    // the describer that sits back inside the block.
     let tri = meshes.add(Triangle2d::new(
-        Vec2::new(SIGNAL_SIZE, 0.0),
-        Vec2::new(-SIGNAL_SIZE * 0.6, SIGNAL_SIZE * 0.75),
-        Vec2::new(-SIGNAL_SIZE * 0.6, -SIGNAL_SIZE * 0.75),
+        Vec2::new(SIGNAL_SIZE * 1.6, 0.0),
+        Vec2::new(0.0, SIGNAL_SIZE * 0.75),
+        Vec2::new(0.0, -SIGNAL_SIZE * 0.75),
     ));
     let signal_materials = SignalMaterials {
         closed: materials.add(ColorMaterial::from_color(SIGNAL_CLOSED)),
@@ -715,7 +749,7 @@ fn size_describer_backgrounds(
     for (mut sprite, child_of) in &mut backgrounds {
         // `get` honours the `Changed` filter, so only plates whose label re-laid out update.
         if let Ok(layout) = labels.get(child_of.parent()) {
-            sprite.custom_size = Some(layout.size + Vec2::new(2.0 * DESCRIBER_PADDING, DESCRIBER_PADDING));
+            sprite.custom_size = Some(layout.size + Vec2::new(2.0 * DESCRIBER_PADDING, 0.0));
         }
     }
 }

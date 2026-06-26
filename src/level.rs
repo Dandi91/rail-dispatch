@@ -19,7 +19,15 @@ pub struct Level {
     pub stations: Vec<StationData>,
     #[serde(default)]
     pub geometry: Vec<BlockGeometry>,
+    /// Vertical spacing (pixel space) between schematic rows. The editor snaps track vertices to
+    /// an infinite grid at multiples of this value, in both directions.
+    #[serde(default = "default_row_spacing")]
+    pub row_spacing: f32,
     pub background: HexColor,
+}
+
+fn default_row_spacing() -> f32 {
+    12.0
 }
 
 /// Schematic geometry for a block: a polyline (in level pixel space) along which the

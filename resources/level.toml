@@ -94,27 +94,30 @@ sections = [
     [6, [8, 24, 23]],
 ]
 
+# vertical spacing (px) between schematic rows; the editor snaps to a grid at multiples of this
+row_spacing = 12
+
 geometry = [
     # block_id, polyline in pixel space [[x, y], ...]
-    # main running line (even direction, left -> right) at y = 50
-    [1,  [[14, 50], [40, 50]]],
-    [2,  [[40, 50], [66, 50]]],
-    [3,  [[66, 50], [92, 50]]],
-    [4,  [[92, 50], [110, 50]]],   # switch 1 base
-    [5,  [[110, 50], [138, 50]]],  # switch 1 straight
-    [6,  [[138, 50], [174, 50]]],
-    [7,  [[174, 50], [199, 50]]],  # switch 2 straight
-    [8,  [[199, 50], [220, 50]]],  # switch 2 base
-    [9,  [[220, 50], [246, 50]]],
-    [10, [[246, 50], [272, 50]]],
-    [11, [[272, 50], [296, 50]]],
+    # main running line (even direction, left -> right) on row 0
+    [1,  [[14, 0], [40, 0]]],
+    [2,  [[40, 0], [66, 0]]],
+    [3,  [[66, 0], [92, 0]]],
+    [4,  [[92, 0], [110, 0]]],   # switch 1 base
+    [5,  [[110, 0], [138, 0]]],  # switch 1 straight
+    [6,  [[138, 0], [174, 0]]],
+    [7,  [[174, 0], [199, 0]]],  # switch 2 straight
+    [8,  [[199, 0], [220, 0]]],  # switch 2 base
+    [9,  [[220, 0], [246, 0]]],
+    [10, [[246, 0], [272, 0]]],
+    [11, [[272, 0], [296, 0]]],
 
-    # passing loop (lower line) at y = 78, joined by ~72° diagonal switch legs
-    [20, [[110, 50], [119, 78], [131, 78]]],  # switch 1 side leg (diverge down, ~72°)
-    [21, [[131, 78], [143, 78]]],
-    [22, [[143, 78], [167, 78]]],
-    [23, [[167, 78], [178, 78]]],
-    [24, [[178, 78], [190, 78], [199, 50]]],  # switch 2 side leg (merge up, ~72°)
+    # passing loop on row 24 (two grid steps down), joined by ~72° diagonal switch legs
+    [20, [[110, 0], [118, 24], [131, 24]]],  # switch 1 side leg (diverge down, ~72°)
+    [21, [[131, 24], [143, 24]]],
+    [22, [[143, 24], [167, 24]]],
+    [23, [[167, 24], [178, 24]]],
+    [24, [[178, 24], [191, 24], [199, 0]]],  # switch 2 side leg (merge up, ~72°)
 ]
 
 background = "#508050"
