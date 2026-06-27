@@ -26,6 +26,7 @@ features = [
     "bevy_log",
     "bevy_picking",
     "mesh_picking",
+    "bevy_scene", # BSN / bsn! scene macro + ScenePlugin (added to DefaultPlugins)
     "bevy_state",
     "multi_threaded",
     "std",

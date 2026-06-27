@@ -3,13 +3,13 @@ use bevy::input::keyboard::Key;
 use bevy::prelude::*;
 use std::ops::DerefMut;
 
-const MENU_BACKGROUND_DEFAULT: BackgroundColor = BackgroundColor(Color::srgb(0.15, 0.15, 0.15));
-const MENU_BACKGROUND_HIGHLIGHT: BackgroundColor = BackgroundColor(Color::srgb(0.31, 0.31, 0.31));
+const MENU_BACKGROUND_DEFAULT: Color = Color::srgb(0.15, 0.15, 0.15);
+const MENU_BACKGROUND_HIGHLIGHT: Color = Color::srgb(0.31, 0.31, 0.31);
 
-#[derive(Component)]
+#[derive(Component, Default, Clone)]
 struct ContextMenuItem;
 
-#[derive(Component, Default)]
+#[derive(Component, Default, Clone)]
 pub struct ContextMenu {
     target: Option<Entity>,
 }
@@ -46,23 +46,24 @@ pub trait DropDownMenu: Component + Sized {
         let items_len = items.len();
 
         let (entity, vis, node, context_menu) = menu.deref_mut();
-        commands.entity(*entity).despawn_children().with_children(|p| {
-            for item in items {
-                let label = Text::new(item.get_label());
-                p.spawn((
-                    ContextMenuItem,
-                    Node {
-                        padding: UiRect::all(px(4.0)),
-                        ..default()
-                    },
-                    item,
-                    Pickable::default(),
-                ))
-                .with_children(|item| {
-                    item.spawn((label, TextFont::from_font_size(12.0), Pickable::IGNORE));
-                });
-            }
-        });
+        let menu_entity = *entity;
+        commands.entity(menu_entity).despawn_children();
+        for item in items {
+            commands
+                .spawn_scene(bsn! {
+                    ContextMenuItem
+                    Node { padding: {UiRect::all(px(4.0))} }
+                    Pickable
+                    Children [
+                        (
+                            Text({item.get_label()})
+                            TextFont { font_size: {12.0} }
+                            Pickable::IGNORE
+                        )
+                    ]
+                })
+                .insert((item, ChildOf(menu_entity)));
+        }
 
         if items_len > 0 {
             **vis = Visibility::Visible;
@@ -110,35 +111,29 @@ impl Plugin for DropdownPlugin {
 }
 
 fn setup(mut commands: Commands) {
-    commands
-        .spawn((
-            ContextMenu::default(),
-            Node {
-                position_type: PositionType::Absolute,
-                border: UiRect::all(px(1)),
-                flex_direction: FlexDirection::Column,
-                border_radius: BorderRadius::all(px(3.0)),
-                ..default()
-            },
-            MENU_BACKGROUND_DEFAULT,
-            BorderColor::all(Color::WHITE),
-            GlobalZIndex(100),
-            Visibility::Hidden,
-        ))
-        .observe(
-            |event: On<Pointer<Over>>, menu_items: Query<&ContextMenuItem>, mut commands: Commands| {
-                let target = event.original_event_target();
-                if menu_items.get(target).is_ok() {
-                    commands.entity(target).insert(MENU_BACKGROUND_HIGHLIGHT);
-                }
-            },
-        )
-        .observe(
-            |event: On<Pointer<Out>>, menu_items: Query<&ContextMenuItem>, mut commands: Commands| {
-                let target = event.original_event_target();
-                if menu_items.get(target).is_ok() {
-                    commands.entity(target).remove::<BackgroundColor>();
-                }
-            },
-        );
+    commands.spawn_scene(bsn! {
+        ContextMenu
+        Node {
+            position_type: {PositionType::Absolute},
+            border: {UiRect::all(px(1))},
+            flex_direction: {FlexDirection::Column},
+            border_radius: {BorderRadius::all(px(3.0))},
+        }
+        BackgroundColor(MENU_BACKGROUND_DEFAULT)
+        BorderColor::all(Color::WHITE)
+        GlobalZIndex(100)
+        Visibility::Hidden
+        on(|event: On<Pointer<Over>>, menu_items: Query<&ContextMenuItem>, mut commands: Commands| {
+            let target = event.original_event_target();
+            if menu_items.get(target).is_ok() {
+                commands.entity(target).insert(BackgroundColor(MENU_BACKGROUND_HIGHLIGHT));
+            }
+        })
+        on(|event: On<Pointer<Out>>, menu_items: Query<&ContextMenuItem>, mut commands: Commands| {
+            let target = event.original_event_target();
+            if menu_items.get(target).is_ok() {
+                commands.entity(target).remove::<BackgroundColor>();
+            }
+        })
+    });
 }
