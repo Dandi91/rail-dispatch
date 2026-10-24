@@ -2,6 +2,7 @@ pub mod assets;
 pub mod audio;
 pub mod common;
 pub mod dropdown_menu;
+pub mod fps_counter;
 pub mod level;
 pub mod panel;
 pub mod simulation;

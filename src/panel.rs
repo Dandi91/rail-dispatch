@@ -74,7 +74,7 @@ const DESCRIBER_BG: Color = Color::srgb(0.30, 0.31, 0.33);
 #[derive(Resource, Clone, Copy)]
 pub struct TrackTransform {
     /// Bounding-box midpoint of all geometry points, in pixel space.
-    pub center: Vec2,
+    center: Vec2,
 }
 
 impl TrackTransform {
@@ -771,7 +771,7 @@ fn despawn_describers(
 // ----------------------------------------------------------------------------------
 
 fn on_info_over(
-    event: On<Pointer<Over>>,
+    event: On<PointerOver>,
     block_map: Res<BlockMap>,
     trains: Query<&Train>,
     tracks: Query<&TrackSeg>,
@@ -805,11 +805,11 @@ fn on_info_over(
     let (children, vis, node) = info.deref_mut();
     *writer.text(children[0], 0) = text;
     **vis = Visibility::Visible;
-    node.left = px(event.pointer_location.position.x + 12.0);
-    node.top = px(event.pointer_location.position.y + 12.0);
+    node.left = px(event.pointer.position.x + 12.0);
+    node.top = px(event.pointer.position.y + 12.0);
 }
 
-fn on_info_out(_: On<Pointer<Out>>, mut vis: Single<&mut Visibility, With<PanelTooltip>>) {
+fn on_info_out(_: On<PointerOut>, mut vis: Single<&mut Visibility, With<PanelTooltip>>) {
     **vis = Visibility::Hidden;
 }
 

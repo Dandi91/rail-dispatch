@@ -37,31 +37,31 @@ Two binaries are declared in `Cargo.toml`:
 - **`rail-dispatch`** (`src/main.rs`) — the game.
 - **`map-editor`** (`src/editor/main.rs`) — interactive level geometry editor (see Map Editor below).
 
-Shared library code lives in `src/lib.rs` (`pub mod assets, audio, common, dropdown_menu, level, panel, simulation, time_controls`).
+Shared library code lives in `src/lib.rs` (`pub mod assets, audio, common, dropdown_menu, fps_counter, level, panel, simulation, time_controls`).
 
 ## Key Dependencies
-- **bevy 0.19** — game engine
+- **bevy 0.20** — game engine
 - **toml** / **toml_edit** / **serde** / **serde_repr** — level config parsing and writing
 - **event-listener** / **futures-lite** — async asset loading (`assets.rs`)
 - **itertools** / **rand** / **arrayvec** / **thiserror** — utilities
 
 ## Architecture Overview
 
-Rail Dispatch is a railway dispatching simulation game using **Bevy 0.19** with an ECS architecture organized into plugins. Assets are loaded from the `resources/` directory (not `assets/`).
+Rail Dispatch is a railway dispatching simulation game using **Bevy 0.20** with an ECS architecture organized into plugins. Assets are loaded from the `resources/` directory (not `assets/`).
 
 ### Plugin Registration Order (src/main.rs)
-After `DefaultPlugins` (with `AssetPlugin.file_path = "resources"`) and the dev-tools `FpsOverlayPlugin`:
+After `DefaultPlugins` (with `AssetPlugin.file_path = "resources"`) and `FpsCounterPlugin` (`fps_counter.rs`, a small `DiagnosticsStore`-fed FPS text):
 `MeshPickingPlugin` → `DropdownPlugin` → `LevelPlugin` → `AssetLoadingPlugin` → `TimeControlsPlugin` → `PanelPlugin` → `AudioPlugin` → `TrainPlugin` → `SpawnerPlugin` → `MapPlugin` → `StationPlugin`
 
 ### Simulation vs. Rendering Split
 - `src/simulation/` — pure game logic, no rendering: `block.rs`, `train.rs`, `signal.rs`, `spawner.rs`, `station.rs`, `sparse_vec.rs`.
 - `src/panel.rs` — the dispatcher panel: a **vector schematic** renderer (no board image). Split into `SchematicPlugin` (simulation-agnostic static draw built from the `Level` asset) and `PanelPlugin` (the game layer: message-driven track/signal colouring, train describers, picking/menus/tooltips). Also defines `ScreenScalePlugin` (camera + screen scale) and `CameraControlPlugin` (pan/zoom).
-- Other UI/IO: `dropdown_menu.rs`, `time_controls.rs`, `audio.rs`.
+- Other UI/IO: `dropdown_menu.rs`, `time_controls.rs`, `fps_counter.rs`, `audio.rs`.
 - `src/assets.rs` — asset loading state machine; `src/level.rs` — `Level` TOML asset definition.
 - `src/editor/` — the standalone map editor (see Map Editor below).
 
 ### Entity Hierarchies — use `bsn!` (PREFERRED)
-Bevy 0.19 ships **BSN (Bevy Scene Notation)** and the `bsn!` macro. **`bsn!` is the primary way to
+Bevy 0.19+ ships **BSN (Bevy Scene Notation)** and the `bsn!` macro. **`bsn!` is the primary way to
 define component hierarchies in this project** — prefer it over `commands.spawn((...)).with_children(|p| {...})`
 closures for any new entity tree (UI nodes, tooltips, menus, spawner buttons, status bars, etc.). The
 closure style still exists in older code (`panel.rs`, `dropdown_menu.rs`, `time_controls.rs`, `editor/`);
@@ -112,7 +112,7 @@ Note: this release is code-driven only (no `.bsn` asset loader yet). Types need 
 - **`LoadingState`** (`assets.rs`): Bevy `State` enum — `Loading` → `Loaded` → `Instantiated`.
 
 ### Messaging System (CRITICAL)
-The project uses Bevy 0.19's **buffered Message system** for all simulation inter-system communication — **not** `EventReader`/`EventWriter`.
+The project uses Bevy 0.20's **buffered Message system** for all simulation inter-system communication — **not** `EventReader`/`EventWriter`.
 
 - Define events with `#[derive(Message)]`
 - Use `MessageReader<T>` and `MessageWriter<T>` (both from `bevy::prelude`)

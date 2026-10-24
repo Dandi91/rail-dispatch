@@ -30,7 +30,7 @@ pub trait DropDownMenu: Component + Sized {
     }
 
     fn on_entity_click(
-        event: On<Pointer<Click>>,
+        event: On<PointerClick>,
         keyboard_input: Res<ButtonInput<Key>>,
         mut ctx: StaticSystemParam<Self::Context>,
         mut menu: Single<(Entity, &mut Visibility, &mut Node, &mut ContextMenu)>,
@@ -55,11 +55,9 @@ pub trait DropDownMenu: Component + Sized {
                     Node { padding: {UiRect::all(px(4.0))} }
                     Pickable
                     Children [
-                        (
-                            Text({item.get_label()})
-                            TextFont { font_size: {12.0} }
-                            Pickable::IGNORE
-                        )
+                        Text({item.get_label()})
+                        TextFont { font_size: {12.0} }
+                        Pickable::IGNORE
                     ]
                 })
                 .insert((item, ChildOf(menu_entity)));
@@ -67,14 +65,14 @@ pub trait DropDownMenu: Component + Sized {
 
         if items_len > 0 {
             **vis = Visibility::Visible;
-            node.left = px(event.pointer_location.position.x);
-            node.top = px(event.pointer_location.position.y);
+            node.left = px(event.pointer.position.x);
+            node.top = px(event.pointer.position.y);
             context_menu.target = Some(event.entity);
         }
     }
 
     fn on_menu_click(
-        mut event: On<Pointer<Click>>,
+        mut event: On<PointerClick>,
         items: Populated<&Self>,
         mut menu: Single<(Entity, &mut Visibility, &mut ContextMenu)>,
         mut commands: Commands,
@@ -123,13 +121,13 @@ fn setup(mut commands: Commands) {
         BorderColor::all(Color::WHITE)
         GlobalZIndex(100)
         Visibility::Hidden
-        on(|event: On<Pointer<Over>>, menu_items: Query<&ContextMenuItem>, mut commands: Commands| {
+        on(|event: On<PointerOver>, menu_items: Query<&ContextMenuItem>, mut commands: Commands| {
             let target = event.original_event_target();
             if menu_items.get(target).is_ok() {
                 commands.entity(target).insert(BackgroundColor(MENU_BACKGROUND_HIGHLIGHT));
             }
         })
-        on(|event: On<Pointer<Out>>, menu_items: Query<&ContextMenuItem>, mut commands: Commands| {
+        on(|event: On<PointerOut>, menu_items: Query<&ContextMenuItem>, mut commands: Commands| {
             let target = event.original_event_target();
             if menu_items.get(target).is_ok() {
                 commands.entity(target).remove::<BackgroundColor>();

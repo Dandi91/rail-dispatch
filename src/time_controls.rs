@@ -1,6 +1,4 @@
-use bevy::dev_tools::fps_overlay::FpsOverlayConfig;
 use bevy::prelude::*;
-use std::time::Duration;
 
 const MULTIPLIERS: [f64; 7] = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0];
 const DEFAULT_MULTIPLIER_INDEX: usize = 2;
@@ -124,12 +122,10 @@ fn time_controls(
 fn on_time_scale_change(
     change: On<TimeScaleChanged>,
     mut time: ResMut<Time<Virtual>>,
-    mut overlay_config: ResMut<FpsOverlayConfig>,
     query: Single<Entity, With<TimeScaleText>>,
     mut writer: TextUiWriter,
 ) {
     time.set_relative_speed_f64(change.time_scale);
-    overlay_config.refresh_interval = Duration::from_millis((100.0 * change.time_scale) as u64);
     *writer.text(query.entity(), 0) = time_scale_formatted(change.time_scale);
     info!("Setting timescale to {}", change.time_scale);
 }
