@@ -1,4 +1,5 @@
 use bevy::asset::AssetPlugin;
+use bevy::gilrs::GilrsPlugin;
 use bevy::prelude::*;
 use bevy::window::ExitCondition;
 use rail_dispatch::assets::{AssetLoadingPlugin, LoadingState};
@@ -60,7 +61,9 @@ fn main() {
                     }),
                     exit_condition: ExitCondition::OnPrimaryClosed,
                     ..default()
-                }),
+                })
+                // Keyboard and mouse only: skip gamepad discovery.
+                .disable::<GilrsPlugin>(),
         )
         .add_plugins((LevelPlugin, AssetLoadingPlugin, EditorPlugin))
         .run();

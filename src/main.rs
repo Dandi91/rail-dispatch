@@ -1,4 +1,5 @@
 use bevy::asset::AssetPlugin;
+use bevy::gilrs::GilrsPlugin;
 use bevy::picking::mesh_picking::MeshPickingPlugin;
 use bevy::prelude::*;
 use bevy::window::ExitCondition;
@@ -29,7 +30,9 @@ fn main() {
                     }),
                     exit_condition: ExitCondition::OnPrimaryClosed,
                     ..default()
-                }),
+                })
+                // Keyboard and mouse only: skip gamepad discovery.
+                .disable::<GilrsPlugin>(),
             FpsCounterPlugin,
         ))
         .add_plugins((
