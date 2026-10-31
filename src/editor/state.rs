@@ -47,7 +47,7 @@ pub struct EditorModel {
 }
 
 impl EditorModel {
-    fn from_level(level: &Level) -> Self {
+    pub(crate) fn from_level(level: &Level) -> Self {
         let blocks = level
             .blocks
             .iter()
@@ -107,7 +107,8 @@ pub struct VertexRef {
 pub enum EditMode {
     #[default]
     Idle,
-    /// Placing a new block: `true` once the first endpoint has been clicked.
+    /// Placing a new block; the first clicked endpoint is held in
+    /// [`EditorSelection::pending_start`].
     PlacingBlock,
 }
 

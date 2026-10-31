@@ -38,14 +38,15 @@ pub enum Direction {
 }
 
 impl Direction {
-    pub fn reverse(&self) -> Direction {
+    #[must_use]
+    pub fn reverse(self) -> Direction {
         match self {
             Direction::Even => Direction::Odd,
             Direction::Odd => Direction::Even,
         }
     }
 
-    pub fn apply_sign<T: Neg<Output = T>>(&self, value: T) -> T {
+    pub fn apply_sign<T: Neg<Output = T>>(self, value: T) -> T {
         match self {
             Direction::Even => value,
             Direction::Odd => value.neg(),
@@ -53,14 +54,14 @@ impl Direction {
     }
 }
 
-#[derive(Reflect, Copy, Clone, Deref)]
+#[derive(Reflect, Copy, Clone, Deref, Debug)]
 pub struct HexColor(Srgba);
 
 impl<'de> Deserialize<'de> for HexColor {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         struct ColorVisitor;
 
-        impl<'de> Visitor<'de> for ColorVisitor {
+        impl Visitor<'_> for ColorVisitor {
             type Value = HexColor;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
@@ -111,12 +112,13 @@ pub fn wrap<T: PartialOrd>(value: T, low: T, high: T) -> T {
     value
 }
 
+/// Debug helper: logs (at `debug` level) how long the enclosing scope took when dropped.
+#[derive(Debug)]
 pub struct Profiler {
     now: Instant,
 }
 
 impl Profiler {
-    #![allow(dead_code)]
     pub fn new() -> Self {
         Profiler { now: Instant::now() }
     }
@@ -130,7 +132,7 @@ impl Default for Profiler {
 
 impl Drop for Profiler {
     fn drop(&mut self) {
-        println!("Scope took {} us", self.now.elapsed().as_micros());
+        debug!("Scope took {} us", self.now.elapsed().as_micros());
     }
 }
 

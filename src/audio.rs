@@ -1,6 +1,7 @@
 use crate::assets::SoundHandles;
 use bevy::prelude::*;
 
+#[derive(Debug)]
 pub enum AudioKind {
     Beep,
     Error,
@@ -8,7 +9,7 @@ pub enum AudioKind {
     Notification,
 }
 
-#[derive(Event)]
+#[derive(Event, Debug)]
 pub struct AudioEvent {
     pub kind: AudioKind,
 }
@@ -38,6 +39,7 @@ impl AudioEvent {
 #[derive(Component)]
 struct AudioRoot;
 
+#[derive(Debug)]
 pub struct AudioPlugin;
 
 impl Plugin for AudioPlugin {

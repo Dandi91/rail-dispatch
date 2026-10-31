@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::ops::{Index, IndexMut};
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct SignalMap {
     signals: SparseVec<TrackSignal>,
     map: HashMap<(BlockId, Direction), SignalId>,
@@ -31,10 +31,18 @@ impl SignalMap {
         self.signals.iter()
     }
 
-    #[allow(dead_code)]
     pub fn insert(&mut self, signal: TrackSignal) {
         self.map.insert((signal.position.block_id, signal.direction), signal.id);
         self.signals.insert(signal);
+    }
+}
+
+impl<'a> IntoIterator for &'a SignalMap {
+    type Item = &'a TrackSignal;
+    type IntoIter = std::slice::Iter<'a, TrackSignal>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }
 
@@ -42,13 +50,14 @@ impl Index<u32> for SignalMap {
     type Output = TrackSignal;
 
     fn index(&self, index: u32) -> &Self::Output {
-        self.get(index).expect("invalid container index")
+        self.get(index).unwrap_or_else(|| panic!("no signal with id {index}"))
     }
 }
 
 impl IndexMut<u32> for SignalMap {
     fn index_mut(&mut self, index: u32) -> &mut Self::Output {
-        self.get_mut(index).expect("invalid container index")
+        self.get_mut(index)
+            .unwrap_or_else(|| panic!("no signal with id {index}"))
     }
 }
 
@@ -64,7 +73,7 @@ impl FromIterator<TrackSignal> for SignalMap {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum SpeedLimit {
     Unrestricted,
     Restricted(f64),
@@ -74,7 +83,7 @@ impl Display for SpeedLimit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SpeedLimit::Unrestricted => write!(f, "unrestricted"),
-            SpeedLimit::Restricted(speed) => write!(f, "{:.0} km/h", speed),
+            SpeedLimit::Restricted(speed) => write!(f, "{speed:.0} km/h"),
         }
     }
 }
@@ -88,7 +97,7 @@ impl SpeedLimit {
     }
 }
 
-#[derive(Default, Copy, Clone, PartialEq)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, Debug)]
 pub enum SignalAspect {
     /// Signal does not restrict the train's speed
     Unrestricting,
@@ -100,7 +109,9 @@ pub enum SignalAspect {
 }
 
 impl SignalAspect {
-    pub fn chain(&self) -> SignalAspect {
+    /// The aspect a signal shows when the next signal ahead shows `self`.
+    #[must_use]
+    pub fn chain(self) -> SignalAspect {
         match self {
             SignalAspect::Unrestricting | SignalAspect::Restricting => SignalAspect::Unrestricting,
             SignalAspect::Forbidding => SignalAspect::Restricting,
@@ -108,12 +119,14 @@ impl SignalAspect {
     }
 }
 
+#[derive(Debug)]
 pub struct SpeedControl {
     pub aspect: SignalAspect,
     pub passing_kmh: SpeedLimit,
     pub approaching_kmh: SpeedLimit,
 }
 
+#[derive(Debug)]
 pub struct Speeds {
     pub passing_kmh: f64,
     pub approaching_kmh: f64,
@@ -154,7 +167,7 @@ impl SpeedControl {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct TrackSignal {
     pub id: SignalId,
     pub position: TrackPoint,
@@ -181,7 +194,7 @@ impl From<&SignalData> for TrackSignal {
 }
 
 impl Chunkable for TrackSignal {
-    fn get_id(&self) -> u32 {
+    fn id(&self) -> u32 {
         self.id
     }
 }

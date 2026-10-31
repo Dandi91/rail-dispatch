@@ -2,14 +2,14 @@ use crate::assets::{AssetHandles, LoadingState};
 use crate::audio::AudioEvent;
 use crate::common::{BlockId, Direction, RouteId, SectionId, SignalId, SwitchId, SwitchPosition};
 use crate::level::{Level, SwitchData, SwitchSetting};
-use crate::simulation::block::{SignalUpdate, SignalUpdateSource, TrackState, TrackUpdate};
+use crate::simulation::block::{MapSet, SignalUpdate, SignalUpdateSource, TrackState, TrackUpdate};
 use crate::simulation::signal::SignalAspect;
 use crate::simulation::sparse_vec::{Chunkable, SparseVec};
 use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::iter::once;
 
-#[derive(Message)]
+#[derive(Message, Debug)]
 pub struct SwitchUpdate {
     pub switch_id: SwitchId,
     pub position: SwitchPosition,
@@ -24,12 +24,13 @@ impl SwitchUpdate {
 /// Marks a route's blocks as pending (set & locked) or no longer pending. The panel paints
 /// pending blocks green; it consumes the green path itself as occupancy updates arrive, so
 /// this only fires on route activation (`pending = true`) and deactivation (`false`).
-#[derive(Message)]
+#[derive(Message, Debug)]
 pub struct RoutePending {
     pub blocks: Vec<BlockId>,
     pub pending: bool,
 }
 
+#[derive(Debug)]
 pub struct Switch {
     pub id: SwitchId,
     pub base: BlockId,
@@ -53,12 +54,12 @@ impl From<&SwitchData> for Switch {
 }
 
 impl Chunkable for Switch {
-    fn get_id(&self) -> u32 {
+    fn id(&self) -> u32 {
         self.id
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct BusyTracker(HashSet<BlockId>);
 
 impl BusyTracker {
@@ -80,7 +81,7 @@ impl BusyTracker {
     }
 }
 
-#[derive(Default, PartialEq)]
+#[derive(Default, PartialEq, Debug)]
 enum RouteState {
     #[default]
     /// Route isn't set, signal closed
@@ -91,7 +92,7 @@ enum RouteState {
     Used,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct Route {
     id: RouteId,
     signal_id: SignalId,
@@ -104,7 +105,7 @@ struct Route {
 }
 
 impl Chunkable for Route {
-    fn get_id(&self) -> u32 {
+    fn id(&self) -> u32 {
         self.id
     }
 }
@@ -115,7 +116,7 @@ impl Route {
     }
 }
 
-#[derive(Resource)]
+#[derive(Resource, Debug)]
 pub struct StationMap {
     routes: SparseVec<Route>,
     blocks_to_routes: HashMap<BlockId, Vec<RouteId>>,
@@ -180,7 +181,11 @@ impl StationMap {
         }
     }
 
-    fn track_route_state(&mut self, track_updates: &mut MessageReader<TrackUpdate>) {
+    fn track_route_state(
+        &mut self,
+        track_updates: &mut MessageReader<TrackUpdate>,
+        route_pending: &mut MessageWriter<RoutePending>,
+    ) {
         let mut recheck_route_ids = HashSet::new();
         for update in track_updates.read() {
             if let Some(route_ids) = self.blocks_to_routes.get(&update.block_id) {
@@ -202,9 +207,14 @@ impl StationMap {
                 RouteState::Active if !route.tracker.is_free() => route.state = RouteState::Used,
                 RouteState::Used if route.tracker.is_free() => {
                     route.state = RouteState::Inactive;
+                    // Clears any route block the train never entered (its green would otherwise stick).
+                    route_pending.write(RoutePending {
+                        blocks: route.all_blocks().collect(),
+                        pending: false,
+                    });
                 }
                 _ => {}
-            };
+            }
         }
     }
 
@@ -269,11 +279,12 @@ impl StationMap {
     }
 }
 
-#[derive(Message)]
+#[derive(Message, Debug)]
 pub struct RouteActivationRequest {
     pub route_id: RouteId,
 }
 
+#[derive(Debug)]
 pub struct StationPlugin;
 
 impl Plugin for StationPlugin {
@@ -281,7 +292,14 @@ impl Plugin for StationPlugin {
         app.add_systems(OnEnter(LoadingState::Instantiated), build_station_map)
             .add_systems(
                 Update,
-                (track_route_state, handle_route_activation).run_if(in_state(LoadingState::Instantiated)),
+                (
+                    // Activation runs before the map applies switches, so the switch throw and the
+                    // signal opening land in the same frame; route tracking runs once this frame's
+                    // occupancy is known.
+                    handle_route_activation.before(MapSet::Switches),
+                    track_route_state.after(MapSet::Occupancy),
+                )
+                    .run_if(in_state(LoadingState::Instantiated)),
             )
             .add_message::<RouteActivationRequest>()
             .add_message::<RoutePending>()
@@ -294,8 +312,12 @@ fn build_station_map(handles: Res<AssetHandles>, levels: Res<Assets<Level>>, mut
     commands.insert_resource(StationMap::from_level(level));
 }
 
-fn track_route_state(mut station_map: ResMut<StationMap>, mut block_updates: MessageReader<TrackUpdate>) {
-    station_map.track_route_state(&mut block_updates);
+fn track_route_state(
+    mut station_map: ResMut<StationMap>,
+    mut block_updates: MessageReader<TrackUpdate>,
+    mut route_pending: MessageWriter<RoutePending>,
+) {
+    station_map.track_route_state(&mut block_updates, &mut route_pending);
 }
 
 fn handle_route_activation(

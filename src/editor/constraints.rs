@@ -135,3 +135,35 @@ fn stub_x(current_x: f32, target_x: f32, dir: f32) -> f32 {
         current_x.min(target_x)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn angle_deg(a: Vec2, b: Vec2) -> f32 {
+        ((b.y - a.y) / (b.x - a.x)).abs().atan().to_degrees()
+    }
+
+    #[test]
+    fn propagate_locks_diagonals_around_the_anchor() {
+        // Diagonal before the anchor, horizontal run, then a diagonal after it.
+        let mut points = [
+            Vec2::new(0.0, 0.0),
+            Vec2::new(20.0, 12.0),
+            Vec2::new(60.0, 12.0),
+            Vec2::new(65.0, 24.0),
+        ];
+        propagate_from(&mut points, 1);
+        assert_eq!(points[1], Vec2::new(20.0, 12.0), "anchor stays put");
+        assert!((angle_deg(points[0], points[1]) - DIAGONAL_ANGLE_DEG).abs() < 0.01);
+        assert_eq!(points[2], Vec2::new(60.0, 12.0), "horizontal runs keep their x");
+        assert!((angle_deg(points[2], points[3]) - DIAGONAL_ANGLE_DEG).abs() < 0.01);
+    }
+
+    #[test]
+    fn stub_extends_only_when_too_short() {
+        assert_eq!(stub_x(100.0, 50.0, 1.0), 100.0);
+        assert_eq!(stub_x(40.0, 50.0, 1.0), 50.0);
+        assert_eq!(stub_x(-100.0, -50.0, -1.0), -100.0);
+    }
+}

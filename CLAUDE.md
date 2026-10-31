@@ -81,7 +81,7 @@ Core syntax:
       Node { padding: {UiRect::all(px(4.0))} }
       Pickable
       Children [
-          (Text({label}) TextFont { font_size: {12.0} } Pickable::IGNORE),
+          Text({label}) TextFont { font_size: {12.0} } Pickable::IGNORE
       ]
   }
   ```
@@ -91,8 +91,8 @@ Core syntax:
   itself, so it works. Components with a *generated* template struct (e.g. `TextFont` → `TextFontTemplate`) do not
   expose their inherent constructors on the template, so `TextFont::from_font_size(12.0)` fails to compile — use the
   field form `TextFont { font_size: {12.0} }` instead. When unsure, just compile: the error names the template type.
-- **Children / relationships**: `Children [ a, b ]` (comma-separated entities; group multi-component children in
-  `( ... )`). Any relationship works the same way, e.g. a custom `Inventory [ ... ]`. To attach children to an
+- **Children / relationships**: `Children [ a -- b ]` (list each child's components, separating
+  entities with `--`; the older `( ... ), ( ... )` form is deprecated in Bevy 0.20 and warns). Any relationship works the same way, e.g. a custom `Inventory [ ... ]`. To attach children to an
   *existing* entity, `EntityCommands::queue_spawn_related_scenes::<Children>(bsn_list![...])`.
 - **Composition (patches)**: scene-returning fns compose — calling `button()` inside another `bsn!` merges
   component data field-by-field, so layered scenes override only what they set. Build reusable widgets this way.
@@ -124,10 +124,10 @@ Messages live alongside the plugin that owns them:
 - `TrainPlugin` (`simulation/train.rs`) registers `TrainMove`, `TrainSpawnRequest`, `TrainDespawnRequest`.
 
 **`TrackUpdate` vs. `TrainMove`** (important distinction):
-- `TrainMove { block_id, train_id, kind: Entered | Exited }` — emitted by trains (and `BlockMap::despawn_train`) every time a train steps into or off a block. Consumed by `Spawner`/`Despawner` and by `BlockMap::process_train_moves`.
+- `TrainMove { block_id, train_id, kind: Entered | Exited }` — emitted by trains (and by `despawn_trains` in `train.rs` for every block a despawned train still occupies) every time a train steps into or off a block. Consumed by `Spawner`/`Despawner` and by `BlockMap::process_train_moves`.
 - `TrackUpdate { block_id, train_id, state: Freed | Occupied, train_direction, train_number, section_ctx }` — emitted **only** by `process_train_moves` when a train move actually flips a block's (or section's) status. For single-block sections, one update per block; for multi-block sections, `Freed` is produced only when all blocks in the section clear. The optional `section_ctx: Option<SectionContext>` carries the owning section's id and block list. Consumed by signal propagation, the `StationMap` route/section trackers, and the panel renderer.
 - `SignalAspectChanged { signal_id, aspect }` — emitted by signal propagation to notify the panel of the **settled** aspect (vs. `SignalUpdate`, which is a *request*).
-- `MapPlugin` system chain (`Update`, gated on `LoadingState::Instantiated`): `switch_updates → train_moves → track_updates → signal_updates`.
+- `MapPlugin` runs in ordered `MapSet`s (`Update`, gated on `LoadingState::Instantiated`): `Switches` (`switch_updates`) → `Occupancy` (`train_moves → track_updates`) → `Signals` (`signal_updates`). Other plugins order against these sets: `StationPlugin` runs `handle_route_activation` before `MapSet::Switches` (so a route's switch throw and signal opening land in the same frame) and `track_route_state` after `MapSet::Occupancy`.
 
 **Exception**: UI/audio-triggered events use `#[derive(Event)]` with `commands.trigger()` and `On<T>` observers — `SpawnRequest` (`spawner.rs`) and `AudioEvent` (`audio.rs`) are intentional examples.
 
@@ -159,18 +159,18 @@ TOML using array-of-arrays (positional) entries. Tables:
 
 A `RouteData` has `id`, `signal` (the protecting signal ID), `sections` (the section IDs the route covers), `target` (the destination block), and `switches` (a list of `SwitchSetting { switch_id, position }` to enforce). The route's block set is derived as the union of its sections' blocks.
 
-The `Level` struct is a proper Bevy `Asset` loaded via the custom `LevelLoader` in `src/level.rs`.
+The `Level` struct is a proper Bevy `Asset` loaded via the custom `LevelLoader` in `src/level.rs`. The loader runs `Level::validate` (duplicate ids, dangling references between tables) and fails the load with a `LevelLoaderError` naming the table and id; `AssetLoadingPlugin` logs the error and exits rather than advancing to `Loaded`.
 
 ### Routes & Sections
-Routes and sections are both owned by `StationMap` (`simulation/station.rs`); they are tightly coupled.
+Routes are owned by `StationMap` (`simulation/station.rs`); sections are declared in the level and referenced by routes.
 
-`Route` has a `RouteState`: `Inactive` → `Active` (signal opened, awaiting train) → `Used` (train entered, signal auto-closed) → `Inactive` (all route blocks freed). It carries `section_ids` (the sections it covers) and a derived `block_ids` (union of those sections' blocks, used for occupation/conflict checks).
+`Route` has a `RouteState`: `Inactive` → `Active` (signal opened, awaiting train) → `Used` (train entered, signal auto-closed) → `Inactive` (all route blocks freed). It carries a derived `block_ids` (union of its sections' blocks, used for occupation/conflict checks) and a separately tracked `target_block_id`.
 
-`Section` carries its `blocks`, an `occupied` set, and an `active` flag. A section becomes active when a route covering it is activated, and inactive when the owning route returns to `Inactive`. Because conflicting routes (those sharing any block) cannot be simultaneously active, at most one active route can ever claim a given section at a time.
+Sections are only an input to `StationMap`: each `Route` stores the union of its sections' blocks plus a `BusyTracker` of currently occupied route blocks. (Section occupancy counting for `TrackUpdate` lives in `BlockMap`'s `BlockTracker`.) Because conflicting routes (those sharing any block) cannot be simultaneously active, at most one active route can ever claim a given block at a time.
 
-Activation flow (`handle_route_activation`): validates `Inactive` state, all route blocks free, no conflicting route active (using precomputed `blocks_to_routes` and `conflicting_routes`); writes `SwitchUpdate`s; opens the signal via `SignalUpdate::Manual(Unrestricting)`; flips `active = true` on each route section; emits `RoutePending` so the panel paints the pending (green) route path.
+Activation flow (`handle_route_activation`): validates `Inactive` state, all route blocks free, no conflicting route active (using precomputed `blocks_to_routes` and `conflicting_routes`); writes `SwitchUpdate`s; opens the signal via `SignalUpdate::Manual(Unrestricting)`; emits `RoutePending { pending: true }` so the panel paints the pending (green) route path.
 
-Track colouring is **message-driven in the panel**, not via a lamp model. The panel resolves each block's colour by precedence (occupied > pending > free): occupancy follows `TrackUpdate`, the pending path follows `RoutePending`, and the green pending path is consumed block-by-block as occupancy arrives. `track_route_state` in `StationMap` updates `route.occupied`/`section.occupied` on every `TrackUpdate` to drive route state transitions.
+Track colouring is **message-driven in the panel**, not via a lamp model. The panel resolves each block's colour by precedence (occupied > pending > free): occupancy follows `TrackUpdate`, the pending path follows `RoutePending`, and the green pending path is consumed block-by-block as occupancy arrives. `track_route_state` in `StationMap` updates each route's `BusyTracker` on every `TrackUpdate` to drive route state transitions, and emits `RoutePending { pending: false }` when a `Used` route is released.
 
 ### Signal Types (`simulation/signal.rs`)
 - **`TrackSignal`**: Signal entity on a block; holds aspect, speed control info, and a `SignalType` (`Automatic` / `Manual`).

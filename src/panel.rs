@@ -10,7 +10,7 @@
 //!
 //! - Track is a continuous line per block (a rotated [`Rectangle`] mesh per segment).
 //!   A block is yellow when occupied, green while pending under a set route, else gray
-//!   (occupied > pending > free). The panel never polls: occupancy follows `BlockUpdate`,
+//!   (occupied > pending > free). The panel never polls: occupancy follows `TrackUpdate`,
 //!   the pending path follows `RoutePending`, and the green path is consumed block-by-block
 //!   as occupancy arrives.
 //! - Only manual (route-protecting) signals are drawn, as a triangle that is green when open
@@ -34,7 +34,6 @@ use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseSc
 use bevy::prelude::*;
 use bevy::text::TextLayoutInfo;
 use std::collections::HashMap;
-use std::ops::DerefMut;
 
 /// Pixel-space (level) → world-space scale factor.
 pub const SCALE: f32 = 4.0;
@@ -45,8 +44,8 @@ const SPAWNER_SIZE: f32 = 9.0;
 /// screen units — scaled by the camera zoom each frame so the on-screen gap is constant. The
 /// plate sits centred on the track line (no perpendicular offset).
 pub const DESCRIBER_INSET: f32 = 28.0;
-/// Padding (in text-logical units, i.e. "pixels") added on every side around the describer
-/// text to size its background plate.
+/// Padding (in text-logical units, i.e. "pixels") added to the left and right of the describer
+/// text to size its background plate (the text's line height already leaves vertical room).
 pub const DESCRIBER_PADDING: f32 = 4.0;
 
 const TRACK_Z: f32 = 0.0;
@@ -63,6 +62,8 @@ const SIGNAL_GREEN: Color = Color::srgb(0.10, 0.85, 0.22);
 const SIGNAL_CLOSED: Color = Color::srgb(0.60, 0.16, 0.16);
 const DESCRIBER_TEXT: Color = Color::srgb(0.95, 0.96, 1.0);
 const DESCRIBER_BG: Color = Color::srgb(0.30, 0.31, 0.33);
+const TOOLTIP_BG: Color = Color::srgb(0.12, 0.13, 0.16);
+const TOOLTIP_BORDER: Color = Color::srgb(0.4, 0.42, 0.48);
 
 // ----------------------------------------------------------------------------------
 // Geometry
@@ -71,7 +72,7 @@ const DESCRIBER_BG: Color = Color::srgb(0.30, 0.31, 0.33);
 /// Mapping between level **pixel space** (y-down, the `level.toml` save format) and the panel's
 /// **world space** (y-up). Centred on the geometry's bounding-box midpoint and scaled by [`SCALE`].
 /// The map editor uses this to round-trip cursor positions back into pixel space.
-#[derive(Resource, Clone, Copy)]
+#[derive(Resource, Clone, Copy, Debug)]
 pub struct TrackTransform {
     /// Bounding-box midpoint of all geometry points, in pixel space.
     center: Vec2,
@@ -107,7 +108,7 @@ impl TrackTransform {
 }
 
 /// Per-block track polylines, in world space.
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Debug)]
 pub struct TrackGeometry {
     polylines: HashMap<BlockId, Vec<Vec2>>,
 }
@@ -161,10 +162,10 @@ impl TrackGeometry {
 // Components / resources
 // ----------------------------------------------------------------------------------
 
-#[derive(Component)]
+#[derive(Component, Debug)]
 pub struct TrackSeg(BlockId);
 
-#[derive(Component)]
+#[derive(Component, Debug)]
 pub struct SignalGlyph(SignalId);
 
 #[derive(Component)]
@@ -183,11 +184,11 @@ struct DescriberAnchor {
 }
 
 /// Background plate behind a [`DescriberLabel`], spawned as its child and sized from the
-/// label's laid-out text plus [`DESCRIBER_PADDING`] on every side.
+/// label's laid-out text plus [`DESCRIBER_PADDING`] on the left and right.
 #[derive(Component)]
 struct DescriberBackground;
 
-#[derive(Component)]
+#[derive(Component, Default, Clone)]
 struct PanelTooltip;
 
 /// Live describer label entities keyed by train.
@@ -256,7 +257,7 @@ const MAX_SCALE: f32 = 8.0;
 /// camera zooms. Base sizes are world units at `scale == 1`. Zoom is the orthographic
 /// projection's `scale` (world units per pixel): on-screen size is `world / scale`, so we
 /// hold size constant by setting world size to `base * scale`.
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Clone, Copy, Debug)]
 pub enum ScreenScale {
     /// Uniform glyph/label: scaled by the zoom factor on every axis.
     Uniform,
@@ -268,6 +269,7 @@ pub enum ScreenScale {
 /// Spawns the 2D camera and drives [`ScreenScale`] entities. Split out of [`SchematicPlugin`]
 /// so the map editor (which renders its own editable layer instead of the static schematic) can
 /// reuse the camera and screen-constant sizing without the static track draw.
+#[derive(Debug)]
 pub struct ScreenScalePlugin;
 
 impl Plugin for ScreenScalePlugin {
@@ -278,8 +280,9 @@ impl Plugin for ScreenScalePlugin {
 }
 
 /// Adds world-space camera pan/zoom input (wheel zoom, middle-drag pan). [`apply_screen_scale`]
-/// is owned by [`SchematicPlugin`] so sizing is correct with or without this plugin; the game
+/// is owned by [`ScreenScalePlugin`] so sizing is correct with or without this plugin; the game
 /// panel and the map viewer both add it on top of `SchematicPlugin`.
+#[derive(Debug)]
 pub struct CameraControlPlugin;
 
 impl Plugin for CameraControlPlugin {
@@ -296,7 +299,7 @@ fn camera_control(
 ) {
     let Some(camera) = camera else { return };
     let (mut projection, mut transform) = camera.into_inner();
-    let Projection::Orthographic(ortho) = projection.deref_mut() else {
+    let Projection::Orthographic(ortho) = &mut *projection else {
         return;
     };
 
@@ -342,6 +345,7 @@ fn apply_screen_scale(
 
 /// Draws the static schematic from the [`Level`] asset and owns the world camera. No
 /// dependency on the simulation, so it can be mounted on its own (e.g. the map editor).
+#[derive(Debug)]
 pub struct SchematicPlugin;
 
 impl Plugin for SchematicPlugin {
@@ -355,6 +359,12 @@ fn spawn_camera(mut commands: Commands) {
     commands.spawn(Camera2d);
 }
 
+/// Builds the static schematic (track segments and manual-signal glyphs) from the level.
+///
+/// # Panics
+///
+/// Panics if the level asset isn't loaded; this runs on `OnExit(LoadingState::Loading)`, after
+/// the loader has verified it.
 pub fn setup_schematic(
     handles: Res<AssetHandles>,
     levels: Res<Assets<Level>>,
@@ -466,6 +476,7 @@ pub fn setup_schematic(
 // Game panel layer: camera control + simulation-driven colouring, labels, picking
 // ----------------------------------------------------------------------------------
 
+#[derive(Debug)]
 pub struct PanelPlugin;
 
 impl Plugin for PanelPlugin {
@@ -490,6 +501,9 @@ impl Plugin for PanelPlugin {
                     size_describer_backgrounds,
                     despawn_describers,
                 )
+                    // Ordered: route paint follows occupancy, and despawn runs last so a describer
+                    // is never recreated for a train removed this frame.
+                    .chain()
                     .run_if(in_state(LoadingState::Instantiated)),
             );
     }
@@ -499,24 +513,24 @@ fn startup(mut commands: Commands) {
     commands.add_observer(on_route_menu_action);
     commands.add_observer(on_spawner_menu_action);
 
-    commands
-        .spawn((
-            PanelTooltip,
-            Node {
-                position_type: PositionType::Absolute,
-                border: UiRect::all(px(1)),
-                padding: UiRect::all(px(5)),
-                ..default()
-            },
-            BackgroundColor(Color::srgb(0.12, 0.13, 0.16)),
-            BorderColor::all(Color::srgb(0.4, 0.42, 0.48)),
-            GlobalZIndex(99),
-            Pickable::IGNORE,
-            Visibility::Hidden,
-        ))
-        .with_children(|p| {
-            p.spawn((Text::default(), TextFont::from_font_size(11.0), Pickable::IGNORE));
-        });
+    commands.spawn_scene(bsn! {
+        PanelTooltip
+        Node {
+            position_type: {PositionType::Absolute},
+            border: {UiRect::all(px(1))},
+            padding: {UiRect::all(px(5))},
+        }
+        BackgroundColor(TOOLTIP_BG)
+        BorderColor::all(TOOLTIP_BORDER)
+        GlobalZIndex(99)
+        Pickable::IGNORE
+        Visibility::Hidden
+        Children [
+            Text
+            TextFont { font_size: {11.0} }
+            Pickable::IGNORE
+        ]
+    });
 }
 
 /// Wire up picking on the schematic entities spawned by [`setup_schematic`]: the route
@@ -554,10 +568,10 @@ fn setup_spawners(
         if data.kind == SpawnerKind::Despawn {
             continue;
         }
-        let Some(block) = block_map.get_block(data.block_id) else {
+        let Some(block) = block_map.block(data.block_id) else {
             continue;
         };
-        let Some(end) = block.get_end_direction() else {
+        let Some(end) = block.open_end() else {
             continue;
         };
         let Some((first, last)) = geometry.endpoints(data.block_id) else {
@@ -655,16 +669,13 @@ fn apply_signal_aspects(
 /// Given a section update, return a block for a describer label. The block is always on the
 /// end of the section which is opposite from where the train had entered.
 /// For regular single block updates, returns the updated block id.
-fn get_describer_block(update: &TrackUpdate) -> BlockId {
+fn describer_block(update: &TrackUpdate) -> BlockId {
     let maybe_block = match &update.section_ctx {
-        Some(ctx) => {
-            let last_index = ctx.get_blocks_len() - 1;
-            match ctx.get_block_index(&update.block_id) {
-                Some(0) => ctx.blocks.last(),
-                Some(i) if i == last_index => ctx.blocks.first(),
-                _ => None,
-            }
-        }
+        Some(ctx) => match ctx.block_index(update.block_id) {
+            Some(0) => ctx.blocks.last(),
+            Some(i) if i + 1 == ctx.blocks.len() => ctx.blocks.first(),
+            _ => None,
+        },
         None => None,
     };
     maybe_block.copied().unwrap_or(update.block_id)
@@ -681,7 +692,7 @@ fn apply_train_describers(
     mut commands: Commands,
 ) {
     for update in updates.read().filter(|u| u.state == TrackState::Occupied) {
-        let block = get_describer_block(update);
+        let block = describer_block(update);
         let Some((leading, interior)) = geometry.describer_anchor(block, update.train_direction) else {
             continue;
         };
@@ -689,8 +700,8 @@ fn apply_train_describers(
             if let Ok((mut anchor, mut text)) = labels.get_mut(entity) {
                 anchor.leading = leading;
                 anchor.interior = interior;
-                if text.0 != update.train_number {
-                    text.0 = update.train_number.clone();
+                if *text.0 != *update.train_number {
+                    text.0 = update.train_number.to_string();
                 }
             }
         } else {
@@ -698,7 +709,7 @@ fn apply_train_describers(
                 .spawn((
                     DescriberLabel,
                     DescriberAnchor { leading, interior },
-                    Text2d::new(update.train_number.clone()),
+                    Text2d::new(update.train_number.to_string()),
                     TextFont {
                         font: fonts.mono.clone().into(),
                         font_size: FontSize::Px(14.0),
@@ -740,7 +751,7 @@ fn position_describers(
 }
 
 /// Keeps each describer's background plate sized to its laid-out text plus
-/// [`DESCRIBER_PADDING`] on every side. Runs whenever the text layout changes (creation or
+/// [`DESCRIBER_PADDING`] on the left and right. Runs whenever the text layout changes (creation or
 /// train-number change).
 fn size_describer_backgrounds(
     labels: Query<&TextLayoutInfo, (With<DescriberLabel>, Changed<TextLayoutInfo>)>,
@@ -787,7 +798,7 @@ fn on_info_over(
                     "Block {} — train {} ({:.0} km/h)",
                     seg.0,
                     train.number,
-                    train.get_speed_kmh()
+                    train.speed_kmh()
                 ),
                 None => format!("Block {} — occupied", seg.0),
             },
@@ -802,7 +813,7 @@ fn on_info_over(
         return;
     };
 
-    let (children, vis, node) = info.deref_mut();
+    let (children, vis, node) = &mut *info;
     *writer.text(children[0], 0) = text;
     **vis = Visibility::Visible;
     node.left = px(event.pointer.position.x + 12.0);
@@ -844,7 +855,7 @@ impl DropDownMenu for PanelRouteMenu {
         }
     }
 
-    fn get_label(&self) -> impl Into<String> {
+    fn label(&self) -> impl Into<String> {
         format!("Open route {}", self.0)
     }
 
@@ -899,7 +910,7 @@ impl DropDownMenu for PanelSpawnerMenu {
         PanelSpawnerMenuEvent { entity, action: *self }
     }
 
-    fn get_label(&self) -> impl Into<String> {
+    fn label(&self) -> impl Into<String> {
         match self {
             PanelSpawnerMenu::Cargo => "Spawn Cargo Train",
             PanelSpawnerMenu::Passenger => "Spawn Passenger Train",
@@ -907,7 +918,7 @@ impl DropDownMenu for PanelSpawnerMenu {
         }
     }
 
-    fn list_available_items(_: Entity, _: &mut SystemParamItem<Self::Context>) -> impl IntoIterator<Item = Self> {
+    fn list_available_items(_: Entity, (): &mut SystemParamItem<Self::Context>) -> impl IntoIterator<Item = Self> {
         [
             PanelSpawnerMenu::Cargo,
             PanelSpawnerMenu::Passenger,

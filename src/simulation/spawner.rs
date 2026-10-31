@@ -5,7 +5,7 @@ use crate::level::{Level, SpawnerKind};
 use crate::simulation::block::{BlockMap, SignalUpdate, SignalUpdateSource, TrackPoint};
 use crate::simulation::signal::SignalAspect;
 use crate::simulation::train::{
-    RailVehicle, TrainDespawnRequest, TrainMove, TrainMoveKind, TrainSpawnRequest, get_random_train_number,
+    RailVehicle, TrainDespawnRequest, TrainMove, TrainMoveKind, TrainSpawnRequest, random_train_number,
 };
 use bevy::prelude::*;
 use std::collections::HashMap;
@@ -19,7 +19,7 @@ pub enum SpawnTrainType {
     Locomotive,
 }
 
-#[derive(Event)]
+#[derive(Event, Debug)]
 pub struct SpawnRequest {
     pub block_id: BlockId,
     pub train_type: SpawnTrainType,
@@ -38,22 +38,22 @@ impl Occupation {
         }
     }
 
-    fn occupy(&mut self, train_id: TrainId) -> Result<u8, ()> {
-        if train_id == self.train_id {
-            self.num_blocks += 1;
-            Ok(self.num_blocks)
-        } else {
-            Err(())
-        }
+    /// Records `train_id` entering one more block. Returns the new block count, or `None` if the
+    /// spawner is occupied by a different train.
+    fn occupy(&mut self, train_id: TrainId) -> Option<u8> {
+        (train_id == self.train_id).then(|| {
+            self.num_blocks = self.num_blocks.saturating_add(1);
+            self.num_blocks
+        })
     }
 
-    fn free(&mut self, train_id: TrainId) -> Result<u8, ()> {
-        if train_id == self.train_id {
-            self.num_blocks -= 1;
-            Ok(self.num_blocks)
-        } else {
-            Err(())
-        }
+    /// Records `train_id` leaving one block. Returns the remaining block count, or `None` if the
+    /// spawner is occupied by a different train.
+    fn free(&mut self, train_id: TrainId) -> Option<u8> {
+        (train_id == self.train_id).then(|| {
+            self.num_blocks = self.num_blocks.saturating_sub(1);
+            self.num_blocks
+        })
     }
 }
 
@@ -82,6 +82,7 @@ struct Despawner {
 #[derive(Resource, Deref, DerefMut, Default)]
 struct SpawnerMapper(HashMap<BlockId, Entity>);
 
+#[derive(Debug)]
 pub struct SpawnerPlugin;
 
 impl Plugin for SpawnerPlugin {
@@ -106,8 +107,8 @@ fn init(
 ) {
     let level = levels.get(&handles.level).expect("level had been loaded");
     for data in &level.spawners {
-        let block = block_map.get_block(data.block_id).expect("invalid block ID");
-        if let Some(end_direction) = block.get_end_direction() {
+        let block = block_map.block(data.block_id).expect("invalid block ID");
+        if let Some(end_direction) = block.open_end() {
             let direction = end_direction.reverse();
             let mut entity = commands.spawn(());
             spawn_mapper.insert(block.id, entity.id());
@@ -128,7 +129,7 @@ fn init(
                 if data.approach_len > 0 {
                     block_map
                         .walk(&block.middle(), f64::INFINITY, direction)
-                        .take(data.approach_len as usize + 1)
+                        .take(usize::from(data.approach_len) + 1)
                         .for_each(|point| {
                             spawn_mapper.insert(point.block_id, entity.id());
                         });
@@ -136,7 +137,7 @@ fn init(
             }
 
             if matches!(data.kind, SpawnerKind::Despawn | SpawnerKind::Both) {
-                let adjacent_block = block_map.get_next(block.id, direction).expect("invalid block ID");
+                let adjacent_block = block_map.next_block(block.id, direction).expect("invalid block ID");
                 entity.insert(Despawner {
                     block_id: block.id,
                     adjacent_block_id: adjacent_block.id,
@@ -170,7 +171,7 @@ fn update_spawners(
             match mv.kind {
                 TrainMoveKind::Entered => {
                     if let Some(existing) = spawner.train.as_mut() {
-                        if existing.occupy(mv.train_id).is_err() {
+                        if existing.occupy(mv.train_id).is_none() {
                             warn!(
                                 "Spawner {} was already occupied by train {}",
                                 spawner_id, existing.train_id
@@ -183,9 +184,9 @@ fn update_spawners(
                 TrainMoveKind::Exited => {
                     if let Some(existing) = spawner.train.as_mut() {
                         match existing.free(mv.train_id) {
-                            Ok(0) => spawner.train = None,
-                            Ok(_) => {}
-                            Err(_) => {
+                            Some(0) => spawner.train = None,
+                            Some(_) => {}
+                            None => {
                                 warn!(
                                     "Spawner {} was occupied by train {}, freed by train {}",
                                     spawner_id, existing.train_id, mv.train_id
@@ -262,7 +263,7 @@ fn spawn_requests(
         }
 
         spawn_requests.write(TrainSpawnRequest {
-            number: get_random_train_number(spawner.direction),
+            number: random_train_number(spawner.direction),
             top_speed_kmh: 80.0,
             actual_speed_kmh: spawner.speed_kmh,
             position: spawner.spawn_point.clone(),

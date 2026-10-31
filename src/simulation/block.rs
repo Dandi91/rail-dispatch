@@ -11,8 +11,13 @@ use itertools::Itertools;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Formatter;
 use std::ops::Not;
+use std::sync::Arc;
 
-#[derive(Default, Copy, Clone, PartialEq)]
+/// How far along the track signal searches look. Bounds every signal walk so that a loop with no
+/// signal facing the search direction can't spin forever; far beyond any braking distance.
+const SIGNAL_SEARCH_LIMIT_M: f64 = 30_000.0;
+
+#[derive(Default, Copy, Clone, PartialEq, Debug)]
 pub enum TrackState {
     #[default]
     Freed,
@@ -41,37 +46,36 @@ impl From<TrainMoveKind> for TrackState {
 /// Messages for track occupation update.
 /// For single-block sections (not defined in `level.toml`), updates are produced for each block.
 /// For multi-block sections, `TrackState::Freed` updates are produced only when all blocks in the section are cleared.
-#[derive(Message, Default)]
+#[derive(Message, Default, Debug)]
 pub struct TrackUpdate {
     pub block_id: BlockId,
     pub train_id: TrainId,
     pub state: TrackState,
     pub train_direction: Direction,
-    pub train_number: String,
+    /// Shared with the train, so per-move messages don't allocate.
+    pub train_number: Arc<str>,
     pub section_ctx: Option<SectionContext>,
 }
 
+#[derive(Debug)]
 pub struct SectionContext {
     pub section_id: SectionId,
-    pub blocks: Vec<BlockId>,
+    /// Shared with the [`Section`], so per-move messages don't allocate.
+    pub blocks: Arc<[BlockId]>,
 }
 
 impl From<&Section> for SectionContext {
     fn from(section: &Section) -> Self {
         SectionContext {
             section_id: section.id,
-            blocks: section.blocks.clone(),
+            blocks: Arc::clone(&section.blocks),
         }
     }
 }
 
 impl SectionContext {
-    pub fn get_block_index(&self, block_id: &BlockId) -> Option<usize> {
-        self.blocks.iter().position(|id| id == block_id)
-    }
-
-    pub fn get_blocks_len(&self) -> usize {
-        self.blocks.len()
+    pub fn block_index(&self, block_id: BlockId) -> Option<usize> {
+        self.blocks.iter().position(|&id| id == block_id)
     }
 }
 
@@ -82,7 +86,7 @@ impl TrackUpdate {
             train_id: train_move.train_id,
             state: train_move.kind.into(),
             train_direction: train_move.direction,
-            train_number: train_move.number.clone(),
+            train_number: Arc::clone(&train_move.number),
             section_ctx: section.map(Into::into),
         }
     }
@@ -99,13 +103,13 @@ impl TrackUpdate {
     /// In case of a section update, all section blocks are updated at the same time
     pub fn blocks(&self) -> &[BlockId] {
         match &self.section_ctx {
-            Some(section_ctx) => section_ctx.blocks.as_slice(),
+            Some(section_ctx) => &section_ctx.blocks,
             None => std::slice::from_ref(&self.block_id),
         }
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum SignalUpdateSource {
     /// Update caused by the change of the guarded track state
     BlockChange(TrackState),
@@ -116,7 +120,7 @@ pub enum SignalUpdateSource {
 }
 
 /// A request to update the signal. Contains a target signal ID and a source of the request.
-#[derive(Message, Clone)]
+#[derive(Message, Clone, Debug)]
 pub struct SignalUpdate {
     pub signal_id: SignalId,
     pub source: SignalUpdateSource,
@@ -134,13 +138,13 @@ impl SignalUpdate {
 
 /// Notifies consumers (the panel) that a signal's resolved aspect actually changed.
 /// Unlike [`SignalUpdate`] (a request), this carries the settled aspect after propagation.
-#[derive(Message)]
+#[derive(Message, Debug)]
 pub struct SignalAspectChanged {
     pub signal_id: SignalId,
     pub aspect: SignalAspect,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct BlockTracker {
     blocks: HashMap<BlockId, Vec<TrainId>>,
     trains: HashMap<TrainId, HashSet<BlockId>>,
@@ -149,7 +153,7 @@ struct BlockTracker {
 
 impl BlockTracker {
     fn is_block_free(&self, block_id: BlockId) -> bool {
-        self.blocks.get(&block_id).is_none_or(|v| v.is_empty())
+        self.blocks.get(&block_id).is_none_or(Vec::is_empty)
     }
 
     fn handle_update(&mut self, update: &TrackUpdate) -> bool {
@@ -164,6 +168,9 @@ impl BlockTracker {
         // we rarely need to track more than 1 train per block (more in case of shunting),
         // but since TrainId is u32, we can afford to preallocate 2 of them just in case.
         const OCCUPIED_CAPACITY: usize = 2;
+        // a single train can span multiple blocks, especially at stations.
+        // again, considering that BlockId is u32, we can afford to preallocate 8 of them.
+        const TRAIN_BLOCKS_CAPACITY: usize = 8;
         let entry = self
             .blocks
             .entry(update.block_id)
@@ -171,9 +178,6 @@ impl BlockTracker {
         entry.push(update.train_id);
         let mut result = entry.len() == 1;
 
-        // a single train can span multiple blocks, especially at stations.
-        // again, considering that BlockId is u32, we can afford to preallocate 8 of them.
-        const TRAIN_BLOCKS_CAPACITY: usize = 8;
         self.trains
             .entry(update.train_id)
             .or_insert_with(|| HashSet::with_capacity(TRAIN_BLOCKS_CAPACITY))
@@ -203,19 +207,24 @@ impl BlockTracker {
         });
 
         if let Some(section_ctx) = &update.section_ctx {
-            let e = self
-                .sections
-                .entry(section_ctx.section_id)
-                .and_modify(|e| *e -= 1)
-                .or_default();
-            result = *e == 0;
+            let count = self.sections.entry(section_ctx.section_id).or_default();
+            if let Some(n) = count.checked_sub(1) {
+                *count = n;
+            } else {
+                // A duplicate `Exited` must not wrap the counter and pin the section occupied.
+                warn!(
+                    "Section {} freed by train {} while already free",
+                    section_ctx.section_id, update.train_id
+                );
+            }
+            result = *count == 0;
         }
 
         result
     }
 }
 
-#[derive(Default, Resource)]
+#[derive(Default, Resource, Debug)]
 pub struct BlockMap {
     blocks: SparseVec<Block>,
     tracker: BlockTracker,
@@ -226,7 +235,7 @@ pub struct BlockMap {
 }
 
 impl BlockMap {
-    pub fn get_available_length(&self, point: &TrackPoint, direction: Direction) -> f64 {
+    pub fn available_length(&self, point: &TrackPoint, direction: Direction) -> f64 {
         if direction == Direction::Even {
             self.blocks[point.block_id].length_m - point.offset_m
         } else {
@@ -234,7 +243,7 @@ impl BlockMap {
         }
     }
 
-    pub fn get_next(&self, block_id: BlockId, direction: Direction) -> Option<&Block> {
+    pub fn next_block(&self, block_id: BlockId, direction: Direction) -> Option<&Block> {
         let block = &self.blocks[block_id];
         let next = match direction {
             Direction::Even => block.next?,
@@ -243,15 +252,15 @@ impl BlockMap {
         Some(&self.blocks[next])
     }
 
-    pub fn get_block(&self, block_id: BlockId) -> Option<&Block> {
+    pub fn block(&self, block_id: BlockId) -> Option<&Block> {
         self.blocks.get(block_id)
     }
 
-    pub fn get_train_blocks(&self, train_id: TrainId) -> Option<&HashSet<BlockId>> {
+    pub fn train_blocks(&self, train_id: TrainId) -> Option<&HashSet<BlockId>> {
         self.tracker.trains.get(&train_id)
     }
 
-    fn get_section_by_block(&self, block_id: BlockId) -> Option<&Section> {
+    fn section_by_block(&self, block_id: BlockId) -> Option<&Section> {
         let section_id = self.sectioned_blocks.get(&block_id)?;
         self.sections.get(*section_id)
     }
@@ -277,7 +286,7 @@ impl BlockMap {
                     self.blocks[active_leg].next = Some(base);
                     self.blocks[inactive_leg].next = None;
                 }
-            };
+            }
         }
     }
 
@@ -287,7 +296,7 @@ impl BlockMap {
         track_updates: &mut MessageWriter<TrackUpdate>,
     ) {
         for mv in train_moves.read() {
-            let section = self.get_section_by_block(mv.block_id);
+            let section = self.section_by_block(mv.block_id);
             let track_update = TrackUpdate::from_train_move(mv, section);
             let changed = self.tracker.handle_update(&track_update);
             if changed {
@@ -387,7 +396,7 @@ impl BlockMap {
         [Direction::Even, Direction::Odd]
             .iter()
             .filter_map(|&direction| {
-                self.walk(&point, f64::INFINITY, direction)
+                self.walk(&point, SIGNAL_SEARCH_LIMIT_M, direction)
                     .skip(1)
                     .find_map(|p| self.signals.find_signal(p.block_id, direction.reverse()))
             })
@@ -397,13 +406,17 @@ impl BlockMap {
 
     /// Checks if the blocks after the `signal` are free up until the next signal in the same direction
     fn is_signal_free(&self, signal: &TrackSignal) -> bool {
-        self.walk(&signal.position, f64::INFINITY, signal.direction)
+        self.walk(&signal.position, SIGNAL_SEARCH_LIMIT_M, signal.direction)
             .skip(1)
             .take_while_inclusive(|p| self.signals.find_signal(p.block_id, signal.direction).is_none())
             .all(|p| self.tracker.is_block_free(p.block_id))
     }
 
     /// Step `length_m` meters in the `direction` along the track
+    ///
+    /// # Panics
+    ///
+    /// Panics if `length_m` is not positive, since the walk then yields no point.
     pub fn step_by(&self, start: &TrackPoint, length_m: f64, direction: Direction) -> TrackPoint {
         self.walk(start, length_m, direction)
             .last()
@@ -425,16 +438,16 @@ impl BlockMap {
         signal_direction: Direction,
     ) -> Option<(&TrackSignal, f64)> {
         let reversed = direction.reverse();
-        let mut length = -self.get_available_length(start, reversed);
-        for (idx, point) in self.walk(start, f64::INFINITY, direction).enumerate() {
+        let mut length = -self.available_length(start, reversed);
+        for (idx, point) in self.walk(start, SIGNAL_SEARCH_LIMIT_M, direction).enumerate() {
             if let Some(signal) = self.signals.find_signal(point.block_id, signal_direction) {
                 let diff = direction.apply_sign(signal.position.offset_m - start.offset_m);
                 if idx > 0 || diff > 0.0 {
-                    length += self.get_available_length(&signal.position, reversed);
+                    length += self.available_length(&signal.position, reversed);
                     return Some((signal, length));
                 }
             }
-            length += self.get_available_length(&point, reversed);
+            length += self.available_length(&point, reversed);
         }
         None
     }
@@ -448,7 +461,7 @@ impl BlockMap {
             block_map: self,
             current_block_id: start.block_id,
             offset_m: start.offset_m,
-            block_available_m: self.get_available_length(start, direction),
+            block_available_m: self.available_length(start, direction),
             current_block_length_m: self.blocks[start.block_id].length_m,
             length_m,
             direction,
@@ -483,7 +496,7 @@ impl BlockMap {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Block {
     pub id: BlockId,
     pub length_m: f64,
@@ -502,7 +515,7 @@ impl From<&BlockData> for Block {
 }
 
 impl Chunkable for Block {
-    fn get_id(&self) -> u32 {
+    fn id(&self) -> u32 {
         self.id
     }
 }
@@ -516,7 +529,7 @@ impl Block {
     }
 
     /// Returns a direction in which the block has an open end, or `None` if both ends are connected.
-    pub fn get_end_direction(&self) -> Option<Direction> {
+    pub fn open_end(&self) -> Option<Direction> {
         if self.prev.is_none() {
             Some(Direction::Odd)
         } else if self.next.is_none() {
@@ -545,14 +558,14 @@ impl std::fmt::Display for TrackPoint {
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct Section {
     id: SectionId,
-    blocks: Vec<BlockId>,
+    blocks: Arc<[BlockId]>,
 }
 
 impl Chunkable for Section {
-    fn get_id(&self) -> u32 {
+    fn id(&self) -> u32 {
         self.id
     }
 }
@@ -561,11 +574,12 @@ impl From<&SectionData> for Section {
     fn from(value: &SectionData) -> Self {
         Section {
             id: value.id,
-            blocks: value.blocks.clone(),
+            blocks: value.blocks.as_slice().into(),
         }
     }
 }
 
+#[derive(Debug)]
 pub struct TrackWalker<'a> {
     block_map: &'a BlockMap,
     current_block_id: BlockId,
@@ -592,7 +606,7 @@ impl Iterator for TrackWalker<'_> {
             self.length_m -= self.block_available_m;
             let result_block_id = self.current_block_id;
             let result_block_length = self.current_block_length_m;
-            if let Some(next_block) = self.block_map.get_next(self.current_block_id, self.direction) {
+            if let Some(next_block) = self.block_map.next_block(self.current_block_id, self.direction) {
                 self.current_block_id = next_block.id;
                 self.block_available_m = next_block.length_m;
                 self.current_block_length_m = next_block.length_m;
@@ -614,6 +628,19 @@ impl Iterator for TrackWalker<'_> {
     }
 }
 
+/// Ordered stages of the map update pipeline. Other plugins order their systems against these
+/// so that switch, occupancy and signal changes made in one frame are applied consistently.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum MapSet {
+    /// Applies `SwitchUpdate`s to the track topology.
+    Switches,
+    /// Turns `TrainMove`s into `TrackUpdate`s and derives signal requests from them.
+    Occupancy,
+    /// Resolves `SignalUpdate`s into settled aspects.
+    Signals,
+}
+
+#[derive(Debug)]
 pub struct MapPlugin;
 
 impl Plugin for MapPlugin {
@@ -622,11 +649,19 @@ impl Plugin for MapPlugin {
             .add_message::<SignalUpdate>()
             .add_message::<SignalAspectChanged>()
             .add_systems(OnExit(LoadingState::Loading), (setup, init).chain())
-            .add_systems(
+            .configure_sets(
                 Update,
-                (switch_updates, train_moves, track_updates, signal_updates)
+                (MapSet::Switches, MapSet::Occupancy, MapSet::Signals)
                     .chain()
                     .run_if(in_state(LoadingState::Instantiated)),
+            )
+            .add_systems(
+                Update,
+                (
+                    switch_updates.in_set(MapSet::Switches),
+                    (train_moves, track_updates).chain().in_set(MapSet::Occupancy),
+                    signal_updates.in_set(MapSet::Signals),
+                ),
             );
     }
 }
@@ -692,7 +727,6 @@ mod tests {
                 length_m: 500.0,
                 prev: Some(1),
                 next: Some(3),
-                ..Default::default()
             },
             Block {
                 id: 3,
@@ -728,7 +762,6 @@ mod tests {
             length_m: 500.0,
             next: Some(wrap(idx + 1, 1, 4)),
             prev: Some(wrap(idx - 1, 1, 4)),
-            ..Default::default()
         });
         let signals = (1..=4).map(|idx| {
             [
@@ -748,7 +781,7 @@ mod tests {
         });
         BlockMap {
             blocks: blocks.into_iter().collect(),
-            signals: signals.flatten().into_iter().collect(),
+            signals: signals.flatten().collect(),
             ..Default::default()
         }
     }
@@ -853,6 +886,38 @@ mod tests {
         let map = build_track();
         let point = TrackPoint::new(1, 200.0);
         assert!(map.lookup_signal_forward(&point, Direction::Odd).is_none());
+    }
+
+    #[test]
+    fn section_freed_twice_stays_free() {
+        let mut tracker = BlockTracker::default();
+        let update = |state| TrackUpdate {
+            block_id: 1,
+            train_id: 7,
+            state,
+            section_ctx: Some(SectionContext {
+                section_id: 3,
+                blocks: Arc::from([1, 2]),
+            }),
+            ..Default::default()
+        };
+        assert!(tracker.handle_update(&update(TrackState::Occupied)));
+        assert!(tracker.handle_update(&update(TrackState::Freed)));
+        assert!(tracker.handle_update(&update(TrackState::Freed)));
+        assert!(
+            tracker.handle_update(&update(TrackState::Occupied)),
+            "section must read free again"
+        );
+    }
+
+    #[test]
+    fn signal_search_terminates_on_loop_without_signals() {
+        let mut map = build_track_extended();
+        map.signals = SignalMap::default();
+        let point = TrackPoint::new(1, 100.0);
+        assert!(map.lookup_signal_forward(&point, Direction::Even).is_none());
+        let block = map.blocks.get(2).unwrap();
+        assert!(map.find_affected_signals(block, TrackState::Occupied).is_empty());
     }
 
     #[test]

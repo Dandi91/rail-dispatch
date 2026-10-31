@@ -4,19 +4,20 @@ use crate::simulation::block::{BlockMap, TrackPoint};
 use crate::simulation::signal::SpeedLimit;
 use bevy::prelude::*;
 use std::collections::HashMap;
+use std::sync::Arc;
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum TrainMoveKind {
     Entered,
     Exited,
 }
 
-#[derive(Message)]
+#[derive(Message, Debug)]
 pub struct TrainMove {
     pub block_id: BlockId,
     pub train_id: TrainId,
     pub direction: Direction,
-    pub number: String,
+    pub number: Arc<str>,
     pub kind: TrainMoveKind,
 }
 
@@ -26,7 +27,7 @@ impl TrainMove {
             block_id,
             train_id: train.id,
             direction: train.direction,
-            number: train.number.clone(),
+            number: Arc::clone(&train.number),
             kind: TrainMoveKind::Entered,
         }
     }
@@ -36,35 +37,25 @@ impl TrainMove {
             block_id,
             train_id: train.id,
             direction: train.direction,
-            number: train.number.clone(),
+            number: Arc::clone(&train.number),
             kind: TrainMoveKind::Exited,
         }
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct TrainControls {
     throttle: f64,
     brake_level: f64,
 }
 
-// impl TrainControls {
-//     fn as_percentage(&self) -> i32 {
-//         if self.throttle != 0.0 {
-//             (self.throttle * 100.0) as i32
-//         } else {
-//             -(self.brake_level * 100.0) as i32
-//         }
-//     }
-// }
-
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 enum VehicleType {
     Locomotive,
     RailCar,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct RailVehicle {
     vehicle_type: VehicleType,
     mass_kg: f64,
@@ -100,7 +91,7 @@ impl RailVehicle {
         }
     }
 
-    fn get_tractive_effort(&self, speed_mps: f64, throttle: f64) -> f64 {
+    fn tractive_effort(&self, speed_mps: f64, throttle: f64) -> f64 {
         match self.vehicle_type {
             VehicleType::Locomotive => {
                 let max_tractive_effort_n = self.max_tractive_effort_n * throttle;
@@ -117,14 +108,14 @@ impl RailVehicle {
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct TrainStats {
     length_m: f64,
     mass_kg: f64,
     max_braking_force_n: f64,
 }
 
-fn get_train_stats<'a, I: IntoIterator<Item = &'a RailVehicle>>(vehicles: I) -> TrainStats {
+fn train_stats<'a, I: IntoIterator<Item = &'a RailVehicle>>(vehicles: I) -> TrainStats {
     let result = vehicles.into_iter().fold((0.0, 0.0, 0.0), |acc, vehicle| {
         (
             acc.0 + vehicle.length_m,
@@ -149,10 +140,10 @@ impl NextTrainId {
     }
 }
 
-#[derive(Component, Default)]
+#[derive(Component, Default, Debug)]
 pub struct Train {
     pub id: TrainId,
-    pub number: String,
+    pub number: Arc<str>,
 
     controls: TrainControls,
     top_speed_kmh: f64,
@@ -179,7 +170,7 @@ impl Train {
         );
     }
 
-    pub fn get_speed_kmh(&self) -> f64 {
+    pub fn speed_kmh(&self) -> f64 {
         self.speed_mps.kmh()
     }
 
@@ -191,7 +182,7 @@ impl Train {
         self.direction
     }
 
-    pub fn get_target_speed_kmh(&self) -> f64 {
+    pub fn target_speed_kmh(&self) -> f64 {
         self.target_speed_mps.kmh()
     }
 
@@ -225,7 +216,7 @@ impl Train {
         TrainControls::default()
     }
 
-    fn get_braking_distance(&self, speed_limit: SpeedLimit, safety_factor: f64) -> Option<f64> {
+    fn braking_distance(&self, speed_limit: SpeedLimit, safety_factor: f64) -> Option<f64> {
         let target_speed_mps = match speed_limit {
             SpeedLimit::Unrestricted => return None,
             SpeedLimit::Restricted(speed_limit_kmh) => speed_limit_kmh.mps(),
@@ -251,7 +242,7 @@ impl Train {
         let tractive_effort = self
             .vehicles
             .iter()
-            .map(|x| x.get_tractive_effort(self.speed_mps, self.controls.throttle))
+            .map(|x| x.tractive_effort(self.speed_mps, self.controls.throttle))
             .sum::<f64>();
         let braking_force = self.stats.max_braking_force_n * self.controls.brake_level;
         let net_force_n = tractive_effort - braking_force;
@@ -275,7 +266,7 @@ impl Train {
         let target_speed_mps = match map.lookup_signal_forward(&self.front_position, self.direction) {
             Some((signal, distance_m)) => {
                 let speeds = signal.speed_ctrl.apply_limit(self.top_speed_kmh);
-                let braking_distance = self.get_braking_distance(signal.speed_ctrl.passing_kmh, 0.8);
+                let braking_distance = self.braking_distance(signal.speed_ctrl.passing_kmh, 0.8);
                 let speed_limit_kmh = match braking_distance {
                     None => speeds.approaching_kmh,
                     Some(braking_distance_m) => {
@@ -289,9 +280,8 @@ impl Train {
                         // Two-phase stop: once the normal logic commits to stopping and speed is
                         // already low, hold at creep speed until the precise final braking point.
                         if normal_target < 0.1 && self.speed_mps <= CREEP_SPEED_KMH.mps() {
-                            let creep_braking_dist = self
-                                .get_braking_distance(signal.speed_ctrl.passing_kmh, 1.0)
-                                .unwrap_or(0.0);
+                            let creep_braking_dist =
+                                self.braking_distance(signal.speed_ctrl.passing_kmh, 1.0).unwrap_or(0.0);
                             if distance_m > creep_braking_dist + CREEP_STOP_OFFSET_M {
                                 CREEP_SPEED_KMH
                             } else {
@@ -317,6 +307,10 @@ impl Train {
             None => 20.0.mps(),
         };
 
+        #[expect(
+            clippy::float_cmp,
+            reason = "exact change detection: only re-target when the limit moves"
+        )]
         if self.target_speed_mps != target_speed_mps {
             self.set_target_speed_mps(target_speed_mps);
         }
@@ -336,7 +330,7 @@ impl Train {
     }
 }
 
-#[derive(Message)]
+#[derive(Message, Debug)]
 pub struct TrainDespawnRequest {
     pub id: TrainId,
 }
@@ -347,7 +341,7 @@ impl From<TrainId> for TrainDespawnRequest {
     }
 }
 
-#[derive(Message, Default)]
+#[derive(Message, Default, Debug)]
 pub struct TrainSpawnRequest {
     pub number: String,
     pub top_speed_kmh: f64,
@@ -360,6 +354,7 @@ pub struct TrainSpawnRequest {
 #[derive(Resource, Deref, DerefMut, Default)]
 struct TrainMapper(HashMap<TrainId, Entity>);
 
+#[derive(Debug)]
 pub struct TrainPlugin;
 
 impl Plugin for TrainPlugin {
@@ -400,7 +395,7 @@ fn despawn_trains(
         if let Some(entity) = mapper.remove(&request.id) {
             let train = query.get(entity).expect("invalid train entity");
             info!("Train {} despawned with ID {}", train.number, train.id);
-            if let Some(blocks) = block_map.get_train_blocks(train.id) {
+            if let Some(blocks) = block_map.train_blocks(train.id) {
                 train_moves.write_batch(blocks.iter().map(|&b| TrainMove::exited(b, train)));
             }
             commands.entity(entity).despawn();
@@ -417,7 +412,7 @@ fn spawn_trains(
     mut commands: Commands,
 ) {
     for spawn in requests.read() {
-        let stats = get_train_stats(&spawn.vehicles);
+        let stats = train_stats(&spawn.vehicles);
         let length_m = stats.length_m;
         let trace: Vec<TrackPoint> = block_map
             .walk(&spawn.position, length_m.max(1.0), spawn.direction.reverse())
@@ -426,7 +421,7 @@ fn spawn_trains(
         let train_id = train_id.next();
         let train = Train {
             id: train_id,
-            number: spawn.number.clone(),
+            number: spawn.number.as_str().into(),
             direction: spawn.direction,
             stats,
             vehicles: spawn.vehicles.clone(),
@@ -447,7 +442,7 @@ fn spawn_trains(
     }
 }
 
-pub fn get_random_train_number(direction: Direction) -> String {
+pub fn random_train_number(direction: Direction) -> String {
     let num = rand::random_range(1000..=9999);
     match num % 2 {
         0 if direction == Direction::Odd => (num + 1).to_string(),

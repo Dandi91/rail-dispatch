@@ -1,25 +1,26 @@
 use itertools::Itertools;
 use std::ops::{Index, IndexMut};
 
-#[cfg_attr(test, derive(Debug))]
+#[derive(Debug)]
 struct Chunk {
     start_id: u32,
     start_index: usize,
 }
 
+#[derive(Debug)]
 pub struct SparseVec<T: Chunkable> {
     chunks: Vec<Chunk>,
     items: Vec<T>,
 }
 
 impl<T: Chunkable> SparseVec<T> {
-    pub fn get_item_index(&self, id: u32) -> Option<usize> {
+    pub fn item_index(&self, id: u32) -> Option<usize> {
         match self.chunks.binary_search_by(|x| x.start_id.cmp(&id)) {
             Ok(x) => Some(self.chunks[x].start_index),
             Err(x) => {
                 if x > 0 {
                     let chunk = &self.chunks[x - 1];
-                    Some(chunk.start_index + (id - chunk.start_id) as usize)
+                    Some(chunk.start_index + usize::try_from(id - chunk.start_id).ok()?)
                 } else {
                     None
                 }
@@ -28,23 +29,15 @@ impl<T: Chunkable> SparseVec<T> {
     }
 
     pub fn get(&self, id: u32) -> Option<&T> {
-        let index = self.get_item_index(id)?;
+        let index = self.item_index(id)?;
         let candidate = self.items.get(index)?;
-        if candidate.get_id() == id {
-            Some(candidate)
-        } else {
-            None
-        }
+        if candidate.id() == id { Some(candidate) } else { None }
     }
 
     pub fn get_mut(&mut self, id: u32) -> Option<&mut T> {
-        let index = self.get_item_index(id)?;
+        let index = self.item_index(id)?;
         let candidate = self.items.get_mut(index)?;
-        if candidate.get_id() == id {
-            Some(candidate)
-        } else {
-            None
-        }
+        if candidate.id() == id { Some(candidate) } else { None }
     }
 
     pub fn iter(&self) -> std::slice::Iter<'_, T> {
@@ -56,11 +49,11 @@ impl<T: Chunkable> SparseVec<T> {
     }
 
     pub fn last_id(&self) -> Option<u32> {
-        self.items.last().map(|x| x.get_id())
+        self.items.last().map(Chunkable::id)
     }
 
     pub fn insert(&mut self, item: T) {
-        let id = item.get_id();
+        let id = item.id();
 
         if let Some(last_id) = self.last_id() {
             if id > last_id {
@@ -85,8 +78,8 @@ impl<T: Chunkable> SparseVec<T> {
         }
 
         // Slow path: insertion in the middle or out of order
-        let index = self.items.partition_point(|x| x.get_id() < id);
-        if index < self.items.len() && self.items[index].get_id() == id {
+        let index = self.items.partition_point(|x| x.id() < id);
+        if index < self.items.len() && self.items[index].id() == id {
             self.items[index] = item;
         } else {
             self.items.insert(index, item);
@@ -101,13 +94,13 @@ impl<T: Chunkable> SparseVec<T> {
         }
 
         self.chunks.push(Chunk {
-            start_id: self.items[0].get_id(),
+            start_id: self.items[0].id(),
             start_index: 0,
         });
         self.chunks.extend(
             self.items
                 .iter()
-                .map(|x| x.get_id())
+                .map(Chunkable::id)
                 .enumerate()
                 .tuple_windows()
                 .filter(|(a, b)| b.1 - a.1 != 1)
@@ -132,20 +125,20 @@ impl<T: Chunkable> Index<u32> for SparseVec<T> {
     type Output = T;
 
     fn index(&self, index: u32) -> &Self::Output {
-        self.get(index).expect("invalid container index")
+        self.get(index).unwrap_or_else(|| panic!("no item with id {index}"))
     }
 }
 
 impl<T: Chunkable> IndexMut<u32> for SparseVec<T> {
     fn index_mut(&mut self, index: u32) -> &mut Self::Output {
-        self.get_mut(index).expect("invalid container index")
+        self.get_mut(index).unwrap_or_else(|| panic!("no item with id {index}"))
     }
 }
 
 impl<T: Chunkable> FromIterator<T> for SparseVec<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let mut vec = SparseVec {
-            items: iter.into_iter().sorted_by_key(|item| item.get_id()).collect(),
+            items: iter.into_iter().sorted_by_key(Chunkable::id).collect(),
             ..Default::default()
         };
         vec.rebuild_chunks();
@@ -181,7 +174,7 @@ impl<'a, T: Chunkable> IntoIterator for &'a mut SparseVec<T> {
 }
 
 pub trait Chunkable {
-    fn get_id(&self) -> u32;
+    fn id(&self) -> u32;
 }
 
 #[cfg(test)]
@@ -199,7 +192,7 @@ mod tests {
     }
 
     impl Chunkable for TestItem {
-        fn get_id(&self) -> u32 {
+        fn id(&self) -> u32 {
             self.id
         }
     }
@@ -217,7 +210,7 @@ mod tests {
         assert_eq!(sparse_vec.chunks[4], (100, 8));
 
         let test_ids = [Ok(3), Ok(1), Ok(65), Ok(101), Err(0), Err(5), Err(69), Err(102)];
-        for test in test_ids.into_iter() {
+        for test in test_ids {
             match test {
                 Ok(id) => {
                     let block = sparse_vec.get(id).unwrap();

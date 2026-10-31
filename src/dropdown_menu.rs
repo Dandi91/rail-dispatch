@@ -1,7 +1,6 @@
 use bevy::ecs::system::{StaticSystemParam, SystemParam, SystemParamItem};
 use bevy::input::keyboard::Key;
 use bevy::prelude::*;
-use std::ops::DerefMut;
 
 const MENU_BACKGROUND_DEFAULT: Color = Color::srgb(0.15, 0.15, 0.15);
 const MENU_BACKGROUND_HIGHLIGHT: Color = Color::srgb(0.31, 0.31, 0.31);
@@ -9,7 +8,7 @@ const MENU_BACKGROUND_HIGHLIGHT: Color = Color::srgb(0.31, 0.31, 0.31);
 #[derive(Component, Default, Clone)]
 struct ContextMenuItem;
 
-#[derive(Component, Default, Clone)]
+#[derive(Component, Default, Clone, Debug)]
 pub struct ContextMenu {
     target: Option<Entity>,
 }
@@ -20,7 +19,7 @@ pub trait DropDownMenu: Component + Sized {
 
     fn create_event(&self, entity: Entity) -> Self::Event<'_>;
 
-    fn get_label(&self) -> impl Into<String>;
+    fn label(&self) -> impl Into<String>;
 
     fn list_available_items(target: Entity, ctx: &mut SystemParamItem<Self::Context>)
     -> impl IntoIterator<Item = Self>;
@@ -45,7 +44,7 @@ pub trait DropDownMenu: Component + Sized {
             .collect();
         let items_len = items.len();
 
-        let (entity, vis, node, context_menu) = menu.deref_mut();
+        let (entity, vis, node, context_menu) = &mut *menu;
         let menu_entity = *entity;
         commands.entity(menu_entity).despawn_children();
         for item in items {
@@ -55,7 +54,7 @@ pub trait DropDownMenu: Component + Sized {
                     Node { padding: {UiRect::all(px(4.0))} }
                     Pickable
                     Children [
-                        Text({item.get_label()})
+                        Text({item.label()})
                         TextFont { font_size: {12.0} }
                         Pickable::IGNORE
                     ]
@@ -81,7 +80,7 @@ pub trait DropDownMenu: Component + Sized {
             return;
         }
 
-        let (entity, vis, context_menu) = menu.deref_mut();
+        let (entity, vis, context_menu) = &mut *menu;
         if let Ok(item) = items.get(event.entity)
             && let Some(target) = context_menu.target
         {
@@ -100,6 +99,7 @@ pub trait DropDownMenu: Component + Sized {
     }
 }
 
+#[derive(Debug)]
 pub struct DropdownPlugin;
 
 impl Plugin for DropdownPlugin {

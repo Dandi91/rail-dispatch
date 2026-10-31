@@ -62,3 +62,62 @@ inherits = "release"
 opt-level = "s"
 # Strip all debugging information from the binary to slightly reduce file size.
 strip = "debuginfo"
+
+# BeautifulRust lints (https://github.com/morganlinton/BeautifulRust), adapted for a Bevy
+# application: library-only lints (missing_docs, missing_*_doc, exhaustive_enums, print_*) are
+# omitted, and Bevy's idiomatic system signatures are allowed. Make CI strict with
+#     cargo clippy --all-targets -- -D warnings
+[lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+missing_debug_implementations = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+elided_lifetimes_in_paths = "allow"      # Bevy: write Res<Time>, not Res<'_, Time>
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+
+# Panics: return errors, and give every intentional panic a reason.
+unwrap_used = "warn"
+expect_used = "allow"
+panic_in_result_fn = "warn"
+missing_assert_message = "warn"
+
+# Suppressions must explain themselves and expire when no longer needed.
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+
+# Unsafe must be justified.
+undocumented_unsafe_blocks = "warn"
+multiple_unsafe_ops_per_block = "warn"
+
+# API shape.
+fn_params_excessive_bools = "warn"
+struct_excessive_bools = "warn"
+clone_on_ref_ptr = "warn"
+redundant_clone = "warn"
+rc_buffer = "warn"
+
+# Idioms.
+string_add = "warn"
+wildcard_imports = "warn"
+
+# Debugging leftovers.
+dbg_macro = "warn"
+todo = "warn"
+
+# Casts that silently lose information.
+as_conversions = "warn"
+cast_possible_truncation = "warn"
+cast_sign_loss = "warn"
+
+# Pedantic lints that are mostly noise in practice.
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+module_inception = "allow"
+enum_glob_use = "allow"
+
+# Bevy conventions (system parameters are taken by value; queries and systems are wide).
+needless_pass_by_value = "allow"
+type_complexity = "allow"
+too_many_arguments = "allow"

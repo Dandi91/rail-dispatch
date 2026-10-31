@@ -12,6 +12,7 @@ const TEXT_COLOR: Color = Color::srgb(0.0, 1.0, 0.0);
 struct FpsText;
 
 /// Lightweight FPS readout in the top-left corner, fed by [`FrameTimeDiagnosticsPlugin`].
+#[derive(Debug)]
 pub struct FpsCounterPlugin;
 
 impl Plugin for FpsCounterPlugin {
@@ -42,7 +43,7 @@ fn fps_counter() -> impl Scene {
 fn update_fps_text(diagnostics: Res<DiagnosticsStore>, mut text: Single<&mut Text, With<FpsText>>) {
     if let Some(fps) = diagnostics
         .get(&FrameTimeDiagnosticsPlugin::FPS)
-        .and_then(|fps| fps.smoothed())
+        .and_then(bevy::diagnostic::Diagnostic::smoothed)
     {
         text.0 = format!("FPS: {fps:.0}");
     }

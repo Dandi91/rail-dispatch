@@ -15,7 +15,7 @@ const GUIDE_THICKNESS: f32 = 1.0;
 
 /// Extra grid rows drawn above and below the geometry's extent, and the pixel-space margin added
 /// to each side of the guide lines, so the grid reads as "infinite" around the content.
-const GUIDE_MARGIN_ROWS: i32 = 8;
+const GUIDE_MARGIN_ROWS: f32 = 8.0;
 const GUIDE_X_MARGIN: f32 = 40.0;
 
 const TRACK_COLOR: Color = Color::srgb(0.55, 0.57, 0.60);
@@ -121,12 +121,14 @@ pub fn setup_guides(
     }
 
     let spacing = model.row_spacing;
-    let first = (min.y / spacing).floor() as i32 - GUIDE_MARGIN_ROWS;
-    let last = (max.y / spacing).ceil() as i32 + GUIDE_MARGIN_ROWS;
+    let first = (min.y / spacing).floor() - GUIDE_MARGIN_ROWS;
+    let last = (max.y / spacing).ceil() + GUIDE_MARGIN_ROWS;
     let material = materials.add(ColorMaterial::from_color(GUIDE_COLOR));
 
-    for row in first..=last {
-        let y = row as f32 * spacing;
+    // Row indices are whole numbers held in f32, so stepping by 1.0 is exact.
+    let rows = std::iter::successors(Some(first), |row| Some(row + 1.0)).take_while(|&row| row <= last);
+    for row in rows {
+        let y = row * spacing;
         let a = model.transform.pixel_to_world(Vec2::new(min.x - GUIDE_X_MARGIN, y));
         let b = model.transform.pixel_to_world(Vec2::new(max.x + GUIDE_X_MARGIN, y));
         let len = (b - a).length();

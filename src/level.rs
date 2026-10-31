@@ -4,9 +4,10 @@ use crate::common::{
 use bevy::{asset::AssetLoader, asset::LoadContext, asset::io::Reader, prelude::*};
 use futures_lite::AsyncReadExt;
 use serde::Deserialize;
+use std::collections::HashSet;
 use thiserror::Error;
 
-#[derive(Deserialize, Asset, Reflect)]
+#[derive(Deserialize, Asset, Reflect, Debug)]
 pub struct Level {
     pub blocks: Vec<BlockData>,
     pub connections: Vec<ConnectionData>,
@@ -32,25 +33,25 @@ fn default_row_spacing() -> f32 {
 
 /// Schematic geometry for a block: a polyline (in level pixel space) along which the
 /// block's track is drawn. The panel renderer maps this to world space.
-#[derive(Deserialize, Reflect)]
+#[derive(Deserialize, Reflect, Debug)]
 pub struct BlockGeometry {
     pub id: BlockId,
     pub points: Vec<Vec2>,
 }
 
-#[derive(Deserialize, Reflect)]
+#[derive(Deserialize, Reflect, Debug)]
 pub struct BlockData {
     pub id: BlockId,
     pub length: f64,
 }
 
-#[derive(Deserialize, Reflect)]
+#[derive(Deserialize, Reflect, Debug)]
 pub struct ConnectionData {
     pub start: BlockId,
     pub end: BlockId,
 }
 
-#[derive(Deserialize, Reflect)]
+#[derive(Deserialize, Reflect, Debug)]
 pub struct SwitchData {
     pub id: SwitchId,
     pub base: BlockId,
@@ -61,13 +62,14 @@ pub struct SwitchData {
 
 #[derive(Copy, Clone, PartialEq, Eq, Deserialize, Reflect)]
 #[serde(rename_all = "lowercase")]
+#[derive(Debug)]
 pub enum SpawnerKind {
     Spawn,
     Despawn,
     Both,
 }
 
-#[derive(Deserialize, Reflect)]
+#[derive(Deserialize, Reflect, Debug)]
 pub struct SpawnerData {
     pub block_id: BlockId,
     pub kind: SpawnerKind,
@@ -81,7 +83,7 @@ pub struct SpawnerData {
     pub y: f32,
 }
 
-#[derive(Deserialize, Reflect)]
+#[derive(Deserialize, Reflect, Debug)]
 pub struct SignalData {
     pub id: SignalId,
     pub block_id: BlockId,
@@ -92,19 +94,19 @@ pub struct SignalData {
     pub signal_type: SignalType,
 }
 
-#[derive(Deserialize, Reflect)]
+#[derive(Deserialize, Reflect, Debug)]
 pub struct SectionData {
     pub id: SectionId,
     pub blocks: Vec<BlockId>,
 }
 
-#[derive(Deserialize, Reflect, Clone)]
+#[derive(Deserialize, Reflect, Clone, Debug)]
 pub struct SwitchSetting {
     pub switch_id: SwitchId,
     pub position: SwitchPosition,
 }
 
-#[derive(Deserialize, Reflect)]
+#[derive(Deserialize, Reflect, Debug)]
 pub struct RouteData {
     pub id: RouteId,
     pub signal: SignalId,
@@ -114,13 +116,14 @@ pub struct RouteData {
     pub switches: Vec<SwitchSetting>,
 }
 
-#[derive(Deserialize, Reflect)]
+#[derive(Deserialize, Reflect, Debug)]
 pub struct StationData {
     pub id: StationId,
     pub name: String,
     pub routes: Vec<RouteData>,
 }
 
+#[derive(Debug)]
 pub struct LevelPlugin;
 
 impl Plugin for LevelPlugin {
@@ -132,12 +135,106 @@ impl Plugin for LevelPlugin {
 #[derive(TypePath)]
 struct LevelLoader;
 
+/// Bevy logs only the `Display` of a loader error (it doesn't walk `source()`), so each variant
+/// includes its inner error in the message.
 #[derive(Debug, Error)]
-enum LevelLoaderError {
-    #[error("Failed to load level file: {0}")]
+pub enum LevelLoaderError {
+    #[error("failed to read level file: {0}")]
     Io(#[from] std::io::Error),
-    #[error("Could not parse level file: {0}")]
-    FileTexture(#[from] toml::de::Error),
+    #[error("could not parse level file: {0}")]
+    Parse(#[from] toml::de::Error),
+    #[error("level is invalid: {0}")]
+    Invalid(#[from] LevelValidationError),
+}
+
+/// A cross-reference problem in an otherwise well-formed level file.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum LevelValidationError {
+    #[error("{table}: duplicate {kind} id {id}")]
+    Duplicate {
+        table: &'static str,
+        kind: &'static str,
+        id: u32,
+    },
+    #[error("{table}: unknown {kind} id {id}")]
+    DanglingRef {
+        table: &'static str,
+        kind: &'static str,
+        id: u32,
+    },
+}
+
+impl Level {
+    /// Checks that every id the level refers to is declared exactly once, so the simulation can
+    /// index its containers without panicking on bad data.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first duplicate declaration or dangling reference found.
+    pub fn validate(&self) -> Result<(), LevelValidationError> {
+        let blocks = unique_ids("blocks", "block", self.blocks.iter().map(|b| b.id))?;
+        let switches = unique_ids("switches", "switch", self.switches.iter().map(|s| s.id))?;
+        let signals = unique_ids("signals", "signal", self.signals.iter().map(|s| s.id))?;
+        let sections = unique_ids("sections", "section", self.sections.iter().map(|s| s.id))?;
+        let routes = self.stations.iter().flat_map(|s| &s.routes);
+        unique_ids("stations", "route", routes.clone().map(|r| r.id))?;
+
+        let check = |table, kind, known: &HashSet<u32>, id: u32| {
+            if known.contains(&id) {
+                Ok(())
+            } else {
+                Err(LevelValidationError::DanglingRef { table, kind, id })
+            }
+        };
+        for c in &self.connections {
+            check("connections", "block", &blocks, c.start)?;
+            check("connections", "block", &blocks, c.end)?;
+        }
+        for s in &self.switches {
+            for id in [s.base, s.straight, s.side] {
+                check("switches", "block", &blocks, id)?;
+            }
+        }
+        for s in &self.spawners {
+            check("spawners", "block", &blocks, s.block_id)?;
+        }
+        for s in &self.signals {
+            check("signals", "block", &blocks, s.block_id)?;
+        }
+        for s in &self.sections {
+            for &id in &s.blocks {
+                check("sections", "block", &blocks, id)?;
+            }
+        }
+        for r in routes {
+            check("stations", "signal", &signals, r.signal)?;
+            check("stations", "block", &blocks, r.target)?;
+            for &id in &r.sections {
+                check("stations", "section", &sections, id)?;
+            }
+            for s in &r.switches {
+                check("stations", "switch", &switches, s.switch_id)?;
+            }
+        }
+        for g in &self.geometry {
+            check("geometry", "block", &blocks, g.id)?;
+        }
+        Ok(())
+    }
+}
+
+fn unique_ids(
+    table: &'static str,
+    kind: &'static str,
+    ids: impl Iterator<Item = u32>,
+) -> Result<HashSet<u32>, LevelValidationError> {
+    let mut seen = HashSet::new();
+    for id in ids {
+        if !seen.insert(id) {
+            return Err(LevelValidationError::Duplicate { table, kind, id });
+        }
+    }
+    Ok(seen)
 }
 
 impl AssetLoader for LevelLoader {
@@ -153,10 +250,54 @@ impl AssetLoader for LevelLoader {
     ) -> Result<Self::Asset, Self::Error> {
         let mut contents = String::new();
         reader.read_to_string(&mut contents).await?;
-        Ok(toml::from_str(&contents)?)
+        let level: Level = toml::from_str(&contents)?;
+        level.validate()?;
+        Ok(level)
     }
 
     fn extensions(&self) -> &[&str] {
         &["toml"]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SHIPPED_LEVEL: &str = include_str!("../resources/level.toml");
+
+    #[test]
+    fn shipped_level_is_valid() {
+        let level: Level = toml::from_str(SHIPPED_LEVEL).expect("shipped level parses");
+        assert_eq!(level.validate(), Ok(()));
+    }
+
+    #[test]
+    fn dangling_connection_is_rejected() {
+        let mut level: Level = toml::from_str(SHIPPED_LEVEL).expect("shipped level parses");
+        level.connections.push(ConnectionData { start: 1, end: 9999 });
+        assert_eq!(
+            level.validate(),
+            Err(LevelValidationError::DanglingRef {
+                table: "connections",
+                kind: "block",
+                id: 9999
+            })
+        );
+    }
+
+    #[test]
+    fn duplicate_block_is_rejected() {
+        let mut level: Level = toml::from_str(SHIPPED_LEVEL).expect("shipped level parses");
+        let id = level.blocks[0].id;
+        level.blocks.push(BlockData { id, length: 1.0 });
+        assert_eq!(
+            level.validate(),
+            Err(LevelValidationError::Duplicate {
+                table: "blocks",
+                kind: "block",
+                id
+            })
+        );
     }
 }

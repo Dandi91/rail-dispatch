@@ -35,7 +35,7 @@ fn cursor_ctx(
     camera: &Camera,
     cam_transform: &GlobalTransform,
     projection: &Projection,
-    transform: &rail_dispatch::panel::TrackTransform,
+    transform: rail_dispatch::panel::TrackTransform,
 ) -> Option<CursorCtx> {
     let cursor = window.cursor_position()?;
     let world = camera.viewport_to_world_2d(cam_transform, cursor).ok()?;
@@ -105,7 +105,7 @@ pub fn update_hover(
         return;
     };
     let (cam, cam_t, proj) = *camera;
-    let Some(ctx) = cursor_ctx(&window, cam, cam_t, proj, &model.transform) else {
+    let Some(ctx) = cursor_ctx(&window, cam, cam_t, proj, model.transform) else {
         selection.hovered = None;
         selection.insert_preview = None;
         return;
@@ -138,7 +138,7 @@ pub fn handle_drag(
         return;
     };
     let (cam, cam_t, proj) = *camera;
-    let Some(ctx) = cursor_ctx(&window, cam, cam_t, proj, &model.transform) else {
+    let Some(ctx) = cursor_ctx(&window, cam, cam_t, proj, model.transform) else {
         return;
     };
     let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
@@ -179,15 +179,15 @@ pub fn handle_drag(
     if selection.dragging && buttons.pressed(MouseButton::Left) {
         // Snap Y to the row grid; X follows the cursor freely. The dragged group is
         // authoritative; constraints adjust the neighbours to keep diagonals at the locked angle.
-        let group = selection.drag_group.clone();
+        let group = &selection.drag_group;
         let raw = Vec2::new(ctx.pixel.x, model.snap_row(ctx.pixel.y));
         // Keep the dragged vertex at least a minimum length from its own block's neighbours so two
         // vertices of a block can't be welded together.
-        let target = clamp_min_separation(&model, &group, raw);
-        for v in &group {
+        let target = clamp_min_separation(&model, group, raw);
+        for v in group {
             model.geometry[v.block_idx].points[v.point_idx] = target;
         }
-        normalize(&mut model, &group);
+        normalize(&mut model, group);
         model.dirty = true;
     } else if buttons.pressed(MouseButton::Left)
         && let Some(drag) = &selection.block_drag
@@ -212,6 +212,7 @@ pub fn handle_drag(
         {
             snap_connect(&mut model, v);
             normalize(&mut model, &[v]);
+            prune_connections(&mut model);
             model.dirty = true;
         } else if let Some(drag) = selection.block_drag.take() {
             // Reconnect either end if it landed on another block's endpoint.
@@ -226,6 +227,7 @@ pub fn handle_drag(
                 );
             }
             normalize(&mut model, &[]);
+            prune_connections(&mut model);
             model.dirty = true;
         }
         selection.dragging = false;
@@ -252,6 +254,7 @@ pub fn handle_delete(
     selection.selected = None;
     selection.hovered = None;
     normalize(&mut model, &[]);
+    prune_connections(&mut model);
     model.dirty = true;
 }
 
@@ -357,6 +360,23 @@ fn snap_connect(model: &mut EditorModel, v: VertexRef) {
     add_connection(model, start, end);
 }
 
+/// Drop every connection whose two blocks no longer share an endpoint, e.g. after a block was
+/// dragged away from a junction or its terminal vertex was deleted. Keeps `connections` (which is
+/// saved as the level topology) consistent with the drawn geometry.
+fn prune_connections(model: &mut EditorModel) {
+    let geometry = &model.geometry;
+    let ends = |id: BlockId| {
+        geometry
+            .iter()
+            .find(|g| g.id == id)
+            .and_then(|g| Some([*g.points.first()?, *g.points.last()?]))
+    };
+    model.connections.retain(|&(a, b)| match (ends(a), ends(b)) {
+        (Some(ea), Some(eb)) => ea.iter().any(|p| eb.iter().any(|q| p.distance(*q) < COINCIDENT_EPS)),
+        _ => false,
+    });
+}
+
 fn add_connection(model: &mut EditorModel, start: BlockId, end: BlockId) {
     if start != end && !model.connections.contains(&(start, end)) {
         model.connections.push((start, end));
@@ -375,7 +395,7 @@ pub fn handle_new_block(
     if keys.just_pressed(KeyCode::KeyB) {
         selection.mode = match selection.mode {
             EditMode::PlacingBlock => EditMode::Idle,
-            _ => EditMode::PlacingBlock,
+            EditMode::Idle => EditMode::PlacingBlock,
         };
         selection.pending_start = None;
     }
@@ -391,7 +411,7 @@ pub fn handle_new_block(
         return;
     };
     let (cam, cam_t, proj) = *camera;
-    let Some(ctx) = cursor_ctx(&window, cam, cam_t, proj, &model.transform) else {
+    let Some(ctx) = cursor_ctx(&window, cam, cam_t, proj, model.transform) else {
         return;
     };
 
@@ -419,5 +439,62 @@ pub fn handle_new_block(
                 selection.mode = EditMode::Idle;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rail_dispatch::level::Level;
+
+    /// Two horizontal blocks on row 0: block 1 from x=0..40, block 2 from x=40..80, connected.
+    fn two_block_model() -> EditorModel {
+        let level: Level = toml::from_str(
+            r##"
+            blocks = [[1, 100], [2, 100]]
+            connections = [[1, 2]]
+            switches = []
+            spawners = []
+            signals = []
+            geometry = [[1, [[0, 0], [40, 0]]], [2, [[40, 0], [80, 0]]]]
+            background = "#000000"
+            "##,
+        )
+        .expect("test level parses");
+        EditorModel::from_level(&level)
+    }
+
+    #[test]
+    fn prune_keeps_connections_that_still_touch() {
+        let mut model = two_block_model();
+        prune_connections(&mut model);
+        assert_eq!(model.connections, vec![(1, 2)]);
+    }
+
+    #[test]
+    fn prune_drops_connection_after_block_moves_away() {
+        let mut model = two_block_model();
+        for p in &mut model.geometry[1].points {
+            p.y += 24.0;
+        }
+        prune_connections(&mut model);
+        assert_eq!(model.connections, Vec::<(BlockId, BlockId)>::new());
+    }
+
+    #[test]
+    fn snap_connect_joins_nearby_endpoints_left_to_right() {
+        let mut model = two_block_model();
+        model.connections.clear();
+        // Pull block 2's start slightly off the junction, then release it there.
+        model.geometry[1].points[0] = Vec2::new(43.0, 0.0);
+        snap_connect(
+            &mut model,
+            VertexRef {
+                block_idx: 1,
+                point_idx: 0,
+            },
+        );
+        assert_eq!(model.geometry[1].points[0], Vec2::new(40.0, 0.0));
+        assert_eq!(model.connections, vec![(1, 2)]);
     }
 }

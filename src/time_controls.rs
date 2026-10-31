@@ -3,7 +3,7 @@ use bevy::prelude::*;
 const MULTIPLIERS: [f64; 7] = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0];
 const DEFAULT_MULTIPLIER_INDEX: usize = 2;
 
-#[derive(Resource)]
+#[derive(Resource, Debug)]
 pub struct TimeControls {
     pub time_scale: f64,
     pub multiplier_index: usize,
@@ -32,9 +32,9 @@ impl TimeControls {
 
 pub fn time_scale_formatted(time_scale: f64) -> String {
     if time_scale >= 1.0 {
-        format!("{}x", time_scale as u32)
+        format!("{time_scale:.0}x")
     } else {
-        format!("{:.1}x", time_scale)
+        format!("{time_scale:.1}x")
     }
 }
 
@@ -48,19 +48,20 @@ impl Default for TimeControls {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Default, Clone)]
 struct TimeScaleText;
 
-#[derive(Event)]
+#[derive(Event, Debug)]
 pub struct TimeScaleChanged {
     pub time_scale: f64,
 }
 
-#[derive(Event)]
+#[derive(Event, Debug)]
 pub struct PauseToggled {
     pub paused: bool,
 }
 
+#[derive(Debug)]
 pub struct TimeControlsPlugin;
 
 impl Plugin for TimeControlsPlugin {
@@ -74,26 +75,22 @@ impl Plugin for TimeControlsPlugin {
 }
 
 fn setup(mut commands: Commands) {
-    commands
-        .spawn((
-            Node {
-                right: px(5),
-                position_type: PositionType::Absolute,
-                flex_direction: FlexDirection::Column,
-                ..Default::default()
-            },
-            GlobalZIndex(i32::MAX),
-            Pickable::IGNORE,
-        ))
-        .with_children(|p| {
-            p.spawn((
-                Text::new(time_scale_formatted(MULTIPLIERS[DEFAULT_MULTIPLIER_INDEX])),
-                TextFont::from_font_size(20.0),
-                TextColor(Color::WHITE),
-                TimeScaleText,
-                Pickable::IGNORE,
-            ));
-        });
+    commands.spawn_scene(bsn! {
+        Node {
+            right: {px(5)},
+            position_type: {PositionType::Absolute},
+            flex_direction: {FlexDirection::Column},
+        }
+        GlobalZIndex({i32::MAX})
+        Pickable::IGNORE
+        Children [
+            Text({time_scale_formatted(MULTIPLIERS[DEFAULT_MULTIPLIER_INDEX])})
+            TextFont { font_size: {20.0} }
+            TextColor(Color::WHITE)
+            TimeScaleText
+            Pickable::IGNORE
+        ]
+    });
 }
 
 fn time_controls(
