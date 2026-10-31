@@ -28,7 +28,13 @@ cargo fmt --check
 
 # Format code
 cargo fmt
+
+# Lint (lint config lives in Cargo.toml [lints] and clippy.toml)
+cargo clippy --all-targets -- -D warnings
 ```
+
+**Git hooks**: `.pre-commit-config.yaml` runs `cargo fmt --check` and clippy on commits that touch `.rs` files.
+Enable once per clone with `pre-commit install` (install the tool via `uv tool install pre-commit`).
 
 **Code style**: max line width is 120 (configured in `rustfmt.toml`).
 
