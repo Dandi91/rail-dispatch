@@ -188,10 +188,17 @@ impl StationMap {
     ) {
         let mut recheck_route_ids = HashSet::new();
         for update in track_updates.read() {
-            if let Some(route_ids) = self.blocks_to_routes.get(&update.block_id) {
+            // A section update covers every block of the section, but it is keyed by whichever block
+            // changed: a section can be occupied via its first block and freed via its last. Notify every
+            // route that shares any of those blocks, or a route that saw the occupation could miss the release.
+            // A route sharing several blocks applies the update more than once, which is harmless: it is idempotent.
+            for block_id in update.blocks() {
+                let Some(route_ids) = self.blocks_to_routes.get(block_id) else {
+                    continue;
+                };
                 for &route_id in route_ids {
                     let route = &mut self.routes[route_id];
-                    if update.block_id == route.target_block_id {
+                    if *block_id == route.target_block_id {
                         route.target_block_state = update.state;
                     } else {
                         route.tracker.handle_update(update);

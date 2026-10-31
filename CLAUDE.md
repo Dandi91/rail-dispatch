@@ -165,6 +165,8 @@ TOML using array-of-arrays (positional) entries. Tables:
 
 A `RouteData` has `id`, `signal` (the protecting signal ID), `sections` (the section IDs the route covers), `target` (the destination block), and `switches` (a list of `SwitchSetting { switch_id, position }` to enforce). The route's block set is derived as the union of its sections' blocks.
 
+`resources/level.toml` is a small working map that will change and grow. Tests that depend on concrete ids use the frozen copy `tests/fixtures/reference_level.toml` instead; only `shipped_level_is_valid` reads the real map. Don't reference level ids in code comments.
+
 The `Level` struct is a proper Bevy `Asset` loaded via the custom `LevelLoader` in `src/level.rs`. The loader runs `Level::validate` (duplicate ids, dangling references between tables) and fails the load with a `LevelLoaderError` naming the table and id; `AssetLoadingPlugin` logs the error and exits rather than advancing to `Loaded`.
 
 ### Routes & Sections

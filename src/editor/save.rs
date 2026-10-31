@@ -127,18 +127,18 @@ mod tests {
     use super::*;
     use rail_dispatch::level::Level;
 
-    const SHIPPED_LEVEL: &str = include_str!("../../resources/level.toml");
+    const REFERENCE_LEVEL: &str = include_str!("../../tests/fixtures/reference_level.toml");
 
     #[test]
     fn save_round_trips_and_keeps_other_tables() {
-        let level: Level = toml::from_str(SHIPPED_LEVEL).expect("shipped level parses");
+        let level: Level = toml::from_str(REFERENCE_LEVEL).expect("reference level parses");
         let mut model = EditorModel::from_level(&level);
         model.geometry[0].points[0].x -= 12.0;
 
         let dir = std::env::temp_dir().join(format!("rail-dispatch-save-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("level.toml");
-        fs::write(&path, SHIPPED_LEVEL).unwrap();
+        fs::write(&path, REFERENCE_LEVEL).unwrap();
 
         save(&model, &path).expect("save succeeds");
         let saved = fs::read_to_string(&path).unwrap();

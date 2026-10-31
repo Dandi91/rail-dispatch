@@ -265,6 +265,8 @@ mod tests {
     use super::*;
 
     const SHIPPED_LEVEL: &str = include_str!("../resources/level.toml");
+    /// Frozen copy of the map that tests may refer to by id; the shipped level is free to change.
+    const REFERENCE_LEVEL: &str = include_str!("../tests/fixtures/reference_level.toml");
 
     #[test]
     fn shipped_level_is_valid() {
@@ -273,8 +275,14 @@ mod tests {
     }
 
     #[test]
+    fn reference_level_is_valid() {
+        let level: Level = toml::from_str(REFERENCE_LEVEL).expect("reference level parses");
+        assert_eq!(level.validate(), Ok(()));
+    }
+
+    #[test]
     fn dangling_connection_is_rejected() {
-        let mut level: Level = toml::from_str(SHIPPED_LEVEL).expect("shipped level parses");
+        let mut level: Level = toml::from_str(REFERENCE_LEVEL).expect("reference level parses");
         level.connections.push(ConnectionData { start: 1, end: 9999 });
         assert_eq!(
             level.validate(),
@@ -288,7 +296,7 @@ mod tests {
 
     #[test]
     fn duplicate_block_is_rejected() {
-        let mut level: Level = toml::from_str(SHIPPED_LEVEL).expect("shipped level parses");
+        let mut level: Level = toml::from_str(REFERENCE_LEVEL).expect("reference level parses");
         let id = level.blocks[0].id;
         level.blocks.push(BlockData { id, length: 1.0 });
         assert_eq!(
