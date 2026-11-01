@@ -13,7 +13,7 @@ name = "map-editor"
 path = "src/editor/main.rs"
 
 [dependencies.bevy]
-version = "0.20.0"
+version = "0.20.1"
 default-features = false
 features = [
     "2d",
