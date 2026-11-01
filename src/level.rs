@@ -4,7 +4,7 @@ use crate::common::{
 use bevy::{asset::AssetLoader, asset::LoadContext, asset::io::Reader, prelude::*};
 use futures_lite::AsyncReadExt;
 use serde::Deserialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
 #[derive(Deserialize, Asset, Reflect, Debug)]
@@ -162,6 +162,34 @@ pub enum LevelValidationError {
         kind: &'static str,
         id: u32,
     },
+    /// Sections are track circuits: a block belongs to at most one of them.
+    #[error("sections: block {block} is in both section {first} and section {second}")]
+    SharedBlock {
+        block: BlockId,
+        first: SectionId,
+        second: SectionId,
+    },
+    #[error("sections: section {0} is not one connected stretch of track")]
+    DisconnectedSection(SectionId),
+    #[error("stations: route {route}: {error}")]
+    RoutePath { route: RouteId, error: RoutePathError },
+}
+
+/// Why a route's path can't be traced from its signal to its target.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum RoutePathError {
+    #[error("unknown signal {0}")]
+    UnknownSignal(SignalId),
+    #[error("passes switch {0} without setting its position")]
+    UnsetSwitch(SwitchId),
+    #[error("enters switch {0} from the leg it is not set to")]
+    SwitchSetAgainst(SwitchId),
+    #[error("track ends after block {0}")]
+    DeadEnd(BlockId),
+    #[error("leaves the route's sections at block {0}")]
+    LeavesSections(BlockId),
+    #[error("does not reach the target block")]
+    TargetNotReached,
 }
 
 impl Level {
@@ -219,7 +247,133 @@ impl Level {
         for g in &self.geometry {
             check("geometry", "block", &blocks, g.id)?;
         }
+
+        self.validate_sections()?;
+        for route in self.stations.iter().flat_map(|s| &s.routes) {
+            self.route_path(route)
+                .map_err(|error| LevelValidationError::RoutePath { route: route.id, error })?;
+        }
         Ok(())
+    }
+
+    /// Sections must not share blocks, and each must be one connected stretch of track when every
+    /// switch leg counts as connected (a switch section covers both legs).
+    fn validate_sections(&self) -> Result<(), LevelValidationError> {
+        let mut owner: HashMap<BlockId, SectionId> = HashMap::new();
+        for section in &self.sections {
+            for &block in &section.blocks {
+                if let Some(first) = owner.insert(block, section.id) {
+                    return Err(LevelValidationError::SharedBlock {
+                        block,
+                        first,
+                        second: section.id,
+                    });
+                }
+            }
+        }
+
+        let mut neighbours: HashMap<BlockId, Vec<BlockId>> = HashMap::new();
+        let links = self.connections.iter().map(|c| (c.start, c.end)).chain(
+            self.switches
+                .iter()
+                .flat_map(|s| [(s.base, s.straight), (s.base, s.side)]),
+        );
+        for (a, b) in links {
+            neighbours.entry(a).or_default().push(b);
+            neighbours.entry(b).or_default().push(a);
+        }
+
+        for section in &self.sections {
+            let members: HashSet<BlockId> = section.blocks.iter().copied().collect();
+            let Some(&first) = section.blocks.first() else {
+                continue;
+            };
+            let mut reached = HashSet::from([first]);
+            let mut stack = vec![first];
+            while let Some(block) = stack.pop() {
+                for &next in neighbours.get(&block).into_iter().flatten() {
+                    if members.contains(&next) && reached.insert(next) {
+                        stack.push(next);
+                    }
+                }
+            }
+            if reached.len() != members.len() {
+                return Err(LevelValidationError::DisconnectedSection(section.id));
+            }
+        }
+        Ok(())
+    }
+
+    /// The blocks a route's train runs over, from the block after its signal up to and including its
+    /// target, following the route's switch positions. The route's signal is taken to stand at the
+    /// end of its block, facing the route.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the path can't be traced: a switch on the way the route doesn't set (or sets
+    /// against the path), a dead end, or a block outside the route's sections before the target.
+    pub fn route_path(&self, route: &RouteData) -> Result<Vec<BlockId>, RoutePathError> {
+        let signal = self
+            .signals
+            .iter()
+            .find(|s| s.id == route.signal)
+            .ok_or(RoutePathError::UnknownSignal(route.signal))?;
+        let positions: HashMap<SwitchId, SwitchPosition> =
+            route.switches.iter().map(|s| (s.switch_id, s.position)).collect();
+        let allowed: HashSet<BlockId> = self
+            .sections
+            .iter()
+            .filter(|s| route.sections.contains(&s.id))
+            .flat_map(|s| s.blocks.iter().copied())
+            .collect();
+
+        let mut path = Vec::new();
+        let mut block = signal.block_id;
+        // Every step lands on a new route block, so a longer walk means the path loops.
+        for _ in 0..=allowed.len() {
+            let next = self
+                .next_block_with(block, signal.direction, &positions)?
+                .ok_or(RoutePathError::DeadEnd(block))?;
+            path.push(next);
+            if next == route.target {
+                return Ok(path);
+            }
+            if !allowed.contains(&next) {
+                return Err(RoutePathError::LeavesSections(next));
+            }
+            block = next;
+        }
+        Err(RoutePathError::TargetNotReached)
+    }
+
+    /// The block after `block` in `direction`, with switches set as in `positions`.
+    fn next_block_with(
+        &self,
+        block: BlockId,
+        direction: Direction,
+        positions: &HashMap<SwitchId, SwitchPosition>,
+    ) -> Result<Option<BlockId>, RoutePathError> {
+        let position = |id| positions.get(&id).copied().ok_or(RoutePathError::UnsetSwitch(id));
+        for s in &self.switches {
+            let active_leg = |position| match position {
+                SwitchPosition::Straight => s.straight,
+                SwitchPosition::Side => s.side,
+            };
+            if s.base == block && s.direction == direction {
+                return Ok(Some(active_leg(position(s.id)?)));
+            }
+            if (s.straight == block || s.side == block) && s.direction == direction.reverse() {
+                return if active_leg(position(s.id)?) == block {
+                    Ok(Some(s.base))
+                } else {
+                    Err(RoutePathError::SwitchSetAgainst(s.id))
+                };
+            }
+        }
+        Ok(self.connections.iter().find_map(|c| match direction {
+            Direction::Even => (c.start == block).then_some(c.end),
+            Direction::Odd => (c.end == block).then_some(c.start),
+        }))
     }
 }
 
@@ -268,6 +422,10 @@ mod tests {
     /// Frozen copy of the map that tests may refer to by id; the shipped level is free to change.
     const REFERENCE_LEVEL: &str = include_str!("../tests/fixtures/reference_level.toml");
 
+    fn reference_level() -> Level {
+        toml::from_str(REFERENCE_LEVEL).expect("reference level parses")
+    }
+
     #[test]
     fn shipped_level_is_valid() {
         let level: Level = toml::from_str(SHIPPED_LEVEL).expect("shipped level parses");
@@ -276,13 +434,13 @@ mod tests {
 
     #[test]
     fn reference_level_is_valid() {
-        let level: Level = toml::from_str(REFERENCE_LEVEL).expect("reference level parses");
+        let level = reference_level();
         assert_eq!(level.validate(), Ok(()));
     }
 
     #[test]
     fn dangling_connection_is_rejected() {
-        let mut level: Level = toml::from_str(REFERENCE_LEVEL).expect("reference level parses");
+        let mut level = reference_level();
         level.connections.push(ConnectionData { start: 1, end: 9999 });
         assert_eq!(
             level.validate(),
@@ -296,7 +454,7 @@ mod tests {
 
     #[test]
     fn duplicate_block_is_rejected() {
-        let mut level: Level = toml::from_str(REFERENCE_LEVEL).expect("reference level parses");
+        let mut level = reference_level();
         let id = level.blocks[0].id;
         level.blocks.push(BlockData { id, length: 1.0 });
         assert_eq!(
@@ -305,6 +463,93 @@ mod tests {
                 table: "blocks",
                 kind: "block",
                 id
+            })
+        );
+    }
+
+    fn route_mut(level: &mut Level, id: RouteId) -> &mut RouteData {
+        level
+            .stations
+            .iter_mut()
+            .flat_map(|s| &mut s.routes)
+            .find(|r| r.id == id)
+            .expect("route exists")
+    }
+
+    #[test]
+    fn shared_block_is_rejected() {
+        let mut level = reference_level();
+        level.sections.push(SectionData {
+            id: 99,
+            blocks: vec![4],
+        });
+        assert_eq!(
+            level.validate(),
+            Err(LevelValidationError::SharedBlock {
+                block: 4,
+                first: 2,
+                second: 99
+            })
+        );
+    }
+
+    #[test]
+    fn disconnected_section_is_rejected() {
+        let mut level = reference_level();
+        level.sections.push(SectionData {
+            id: 99,
+            blocks: vec![1, 11],
+        });
+        assert_eq!(level.validate(), Err(LevelValidationError::DisconnectedSection(99)));
+    }
+
+    #[test]
+    fn route_paths_follow_the_switch_positions() {
+        let level = reference_level();
+        let path = |id| {
+            let route = level.stations.iter().flat_map(|s| &s.routes).find(|r| r.id == id);
+            level.route_path(route.expect("route exists")).expect("valid route")
+        };
+        assert_eq!(path(1), [3, 4, 5, 6], "facing, straight");
+        assert_eq!(path(2), [3, 4, 20, 21, 22], "facing, side");
+        assert_eq!(path(8), [21, 20, 4, 3, 2], "trailing, side");
+    }
+
+    #[test]
+    fn route_without_its_switch_is_rejected() {
+        let mut level = reference_level();
+        route_mut(&mut level, 1).switches.clear();
+        assert_eq!(
+            level.validate(),
+            Err(LevelValidationError::RoutePath {
+                route: 1,
+                error: RoutePathError::UnsetSwitch(1)
+            })
+        );
+    }
+
+    #[test]
+    fn route_trailing_a_switch_set_the_other_way_is_rejected() {
+        let mut level = reference_level();
+        route_mut(&mut level, 8).switches[0].position = SwitchPosition::Straight;
+        assert_eq!(
+            level.validate(),
+            Err(LevelValidationError::RoutePath {
+                route: 8,
+                error: RoutePathError::SwitchSetAgainst(1)
+            })
+        );
+    }
+
+    #[test]
+    fn route_leaving_its_sections_is_rejected() {
+        let mut level = reference_level();
+        route_mut(&mut level, 1).target = 10;
+        assert_eq!(
+            level.validate(),
+            Err(LevelValidationError::RoutePath {
+                route: 1,
+                error: RoutePathError::LeavesSections(6)
             })
         );
     }

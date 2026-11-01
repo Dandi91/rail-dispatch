@@ -8,6 +8,7 @@ use crate::simulation::sparse_vec::{Chunkable, SparseVec};
 use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::iter::once;
+use std::sync::Arc;
 
 #[derive(Message, Debug)]
 pub struct SwitchUpdate {
@@ -26,7 +27,8 @@ impl SwitchUpdate {
 /// this only fires on route activation (`pending = true`) and deactivation (`false`).
 #[derive(Message, Debug)]
 pub struct RoutePending {
-    pub blocks: Vec<BlockId>,
+    /// Shared with the route, so activating and releasing it doesn't allocate.
+    pub blocks: Arc<[BlockId]>,
     pub pending: bool,
 }
 
@@ -96,7 +98,11 @@ enum RouteState {
 struct Route {
     id: RouteId,
     signal_id: SignalId,
+    /// Every block of the route's sections: what the route locks and checks for conflicts.
     block_ids: Vec<BlockId>,
+    /// The blocks a train actually runs over (switch legs the route doesn't use are left out),
+    /// ending with the target. This is what the panel paints as the pending route.
+    path: Arc<[BlockId]>,
     target_block_id: BlockId,
     switch_settings: Vec<SwitchSetting>,
     tracker: BusyTracker,
@@ -124,6 +130,11 @@ pub struct StationMap {
 }
 
 impl StationMap {
+    /// Builds the station's routes from a loaded level.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a route's path can't be traced, which `Level::validate` rules out at load time.
     pub fn from_level(level: &Level) -> Self {
         let sections: HashMap<SectionId, &Vec<BlockId>> = level.sections.iter().map(|sd| (sd.id, &sd.blocks)).collect();
 
@@ -141,6 +152,10 @@ impl StationMap {
                     id: rd.id,
                     signal_id: rd.signal,
                     block_ids,
+                    path: level
+                        .route_path(rd)
+                        .expect("route paths are checked when the level loads")
+                        .into(),
                     target_block_id: rd.target,
                     switch_settings: rd.switches.clone(),
                     ..Default::default()
@@ -214,9 +229,9 @@ impl StationMap {
                 RouteState::Active if !route.tracker.is_free() => route.state = RouteState::Used,
                 RouteState::Used if route.tracker.is_free() => {
                     route.state = RouteState::Inactive;
-                    // Clears any route block the train never entered (its green would otherwise stick).
+                    // Clears any path block the train never entered (its green would otherwise stick).
                     route_pending.write(RoutePending {
-                        blocks: route.all_blocks().collect(),
+                        blocks: Arc::clone(&route.path),
                         pending: false,
                     });
                 }
@@ -278,7 +293,7 @@ impl StationMap {
             let route = &mut self.routes[req.route_id];
             route.state = RouteState::Active;
             route_pending.write(RoutePending {
-                blocks: route.all_blocks().collect(),
+                blocks: Arc::clone(&route.path),
                 pending: true,
             });
             commands.trigger(AudioEvent::beep());

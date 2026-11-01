@@ -131,7 +131,7 @@ Messages live alongside the plugin that owns them:
 
 **`TrackUpdate` vs. `TrainMove`** (important distinction):
 - `TrainMove { block_id, train_id, kind: Entered | Exited }` — emitted by trains (and by `despawn_trains` in `train.rs` for every block a despawned train still occupies) every time a train steps into or off a block. Consumed by `Spawner`/`Despawner` and by `BlockMap::process_train_moves`.
-- `TrackUpdate { block_id, train_id, state: Freed | Occupied, train_direction, train_number, section_ctx }` — emitted **only** by `process_train_moves` when a train move actually flips a block's (or section's) status. For single-block sections, one update per block; for multi-block sections, `Freed` is produced only when all blocks in the section clear. The optional `section_ctx: Option<SectionContext>` carries the owning section's id and block list. Consumed by signal propagation, the `StationMap` route/section trackers, and the panel renderer.
+- `TrackUpdate { block_id, train_id, state: Freed | Occupied, train_direction, train_number, section_ctx }` — emitted **only** by `process_train_moves` when a train move actually flips a block's (or section's) status. For single-block sections, one update per block; for multi-block sections, `Occupied` is produced on the first entry and `Freed` only when all blocks in the section clear. The optional `section_ctx: Option<SectionContext>` carries the owning section's id and block list (`blocks()`). For an occupied multi-block section, `lit` holds the section's blocks currently linked to where the train entered, ordered in the train's direction — a switch section lights only its set leg (Pult-style). Display code uses `lit_blocks()` for occupancy; route/conflict tracking uses the whole section. Consumed by signal propagation, the `StationMap` route/section trackers, and the panel renderer.
 - `SignalAspectChanged { signal_id, aspect }` — emitted by signal propagation to notify the panel of the **settled** aspect (vs. `SignalUpdate`, which is a *request*).
 - `MapPlugin` runs in ordered `MapSet`s (`Update`, gated on `LoadingState::Instantiated`): `Switches` (`switch_updates`) → `Occupancy` (`train_moves → track_updates`) → `Signals` (`signal_updates`). Other plugins order against these sets: `StationPlugin` runs `handle_route_activation` before `MapSet::Switches` (so a route's switch throw and signal opening land in the same frame) and `track_route_state` after `MapSet::Occupancy`.
 
@@ -157,17 +157,17 @@ TOML using array-of-arrays (positional) entries. Tables:
 - `switches` — branching points (`id, base, straight, side, direction`).
 - `signals` — control points (`id, block_id, offset_m, name, direction, signal_type`).
 - `spawners` — entry/exit points.
-- `sections` — `[id, [block_ids]]` visual block groupings.
+- `sections` — `[id, [block_ids]]` track circuits. Sections never share blocks; a switch section covers the switch block and both legs.
 - `stations` — named groups of routes; each `RouteData` is `[id, signal, [section_ids], target_block, [switches]]`.
 - `geometry` — per-block schematic polyline: `BlockGeometry { id, points: Vec<Vec2> }` in level pixel space; the panel maps these to world space.
 - `row_spacing` (f32, default 12) — vertical pixel spacing between schematic rows; the editor snaps vertices to a grid at multiples of this value.
 - `background` — hex color string.
 
-A `RouteData` has `id`, `signal` (the protecting signal ID), `sections` (the section IDs the route covers), `target` (the destination block), and `switches` (a list of `SwitchSetting { switch_id, position }` to enforce). The route's block set is derived as the union of its sections' blocks.
+A `RouteData` has `id`, `signal` (the protecting signal ID), `sections` (the section IDs the route covers), `target` (the destination block), and `switches` (a list of `SwitchSetting { switch_id, position }` to enforce). The route's block set is the union of its sections' blocks (what it locks and conflicts on); its **path** (`Level::route_path`) is traced from the signal's block in the signal's direction with the route's switch positions applied, up to the target — the blocks a train actually runs over.
 
 `resources/level.toml` is a small working map that will change and grow. Tests that depend on concrete ids use the frozen copy `tests/fixtures/reference_level.toml` instead; only `shipped_level_is_valid` reads the real map. Don't reference level ids in code comments.
 
-The `Level` struct is a proper Bevy `Asset` loaded via the custom `LevelLoader` in `src/level.rs`. The loader runs `Level::validate` (duplicate ids, dangling references between tables) and fails the load with a `LevelLoaderError` naming the table and id; `AssetLoadingPlugin` logs the error and exits rather than advancing to `Loaded`.
+The `Level` struct is a proper Bevy `Asset` loaded via the custom `LevelLoader` in `src/level.rs`. The loader runs `Level::validate` (duplicate ids, dangling references between tables, sections sharing a block or not forming one connected stretch, route paths that can't be traced) and fails the load with a `LevelLoaderError` naming the table and id; `AssetLoadingPlugin` logs the error and exits rather than advancing to `Loaded`.
 
 ### Routes & Sections
 Routes are owned by `StationMap` (`simulation/station.rs`); sections are declared in the level and referenced by routes.
@@ -176,7 +176,9 @@ Routes are owned by `StationMap` (`simulation/station.rs`); sections are declare
 
 Sections are only an input to `StationMap`: each `Route` stores the union of its sections' blocks plus a `BusyTracker` of currently occupied route blocks. (Section occupancy counting for `TrackUpdate` lives in `BlockMap`'s `BlockTracker`.) Because conflicting routes (those sharing any block) cannot be simultaneously active, at most one active route can ever claim a given block at a time.
 
-Activation flow (`handle_route_activation`): validates `Inactive` state, all route blocks free, no conflicting route active (using precomputed `blocks_to_routes` and `conflicting_routes`); writes `SwitchUpdate`s; opens the signal via `SignalUpdate::Manual(Unrestricting)`; emits `RoutePending { pending: true }` so the panel paints the pending (green) route path.
+Activation flow (`handle_route_activation`): validates `Inactive` state, all route blocks free, no conflicting route active (using precomputed `blocks_to_routes` and `conflicting_routes`); writes `SwitchUpdate`s; opens the signal via `SignalUpdate::Manual(Unrestricting)`; emits `RoutePending { pending: true }` with the route's **path** (not its whole sections) so the panel paints the pending (green) route.
+
+Switches: `BlockMap` links every switch to its initial leg at load, and refuses (with a warning) to move a switch while the section holding its block is occupied. Routes never trigger that refusal; it guards future manual switch control.
 
 Track colouring is **message-driven in the panel**, not via a lamp model. The panel resolves each block's colour by precedence (occupied > pending > free): occupancy follows `TrackUpdate`, the pending path follows `RoutePending`, and the green pending path is consumed block-by-block as occupancy arrives. `track_route_state` in `StationMap` updates each route's `BusyTracker` on every `TrackUpdate` to drive route state transitions, and emits `RoutePending { pending: false }` when a `Used` route is released.
 

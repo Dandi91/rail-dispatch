@@ -612,7 +612,12 @@ fn apply_block_updates(
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     for update in updates.read() {
-        for block_id in update.blocks() {
+        // An occupied switch section lights only its set leg; freeing clears the whole section.
+        let blocks = match update.state {
+            TrackState::Occupied => update.lit_blocks(),
+            TrackState::Freed => update.blocks(),
+        };
+        for block_id in blocks {
             let vis = state.0.entry(*block_id).or_default();
             match update.state {
                 TrackState::Occupied => {
@@ -635,7 +640,7 @@ fn apply_route_pending(
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     for update in updates.read() {
-        for &block_id in &update.blocks {
+        for &block_id in update.blocks.iter() {
             let vis = state.0.entry(block_id).or_default();
             vis.pending = update.pending;
             paint_block(block_id, *vis, &block_materials, &mut materials);
@@ -666,19 +671,10 @@ fn apply_signal_aspects(
     }
 }
 
-/// Given a section update, return a block for a describer label. The block is always on the
-/// end of the section which is opposite from where the train had entered.
-/// For regular single block updates, returns the updated block id.
+/// The block for a describer label: the far end, ahead of the train, of what the update lights up
+/// (the updated block itself for a single-block update).
 fn describer_block(update: &TrackUpdate) -> BlockId {
-    let maybe_block = match &update.section_ctx {
-        Some(ctx) => match ctx.block_index(update.block_id) {
-            Some(0) => ctx.blocks.last(),
-            Some(i) if i + 1 == ctx.blocks.len() => ctx.blocks.first(),
-            _ => None,
-        },
-        None => None,
-    };
-    maybe_block.copied().unwrap_or(update.block_id)
+    update.lit_blocks().last().copied().unwrap_or(update.block_id)
 }
 
 /// Moves (or creates) a train's describer to its head block whenever the train steps over a

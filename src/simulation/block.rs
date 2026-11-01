@@ -1,5 +1,5 @@
 use crate::assets::{AssetHandles, LoadingState};
-use crate::common::{BlockId, Direction, SectionId, SignalId, SwitchPosition, TrainId};
+use crate::common::{BlockId, Direction, SectionId, SignalId, SwitchId, SwitchPosition, TrainId};
 use crate::level::{BlockData, Level, SectionData};
 use crate::simulation::signal::{SignalAspect, SignalMap, TrackSignal};
 use crate::simulation::sparse_vec::{Chunkable, SparseVec};
@@ -45,7 +45,8 @@ impl From<TrainMoveKind> for TrackState {
 
 /// Messages for track occupation update.
 /// For single-block sections (not defined in `level.toml`), updates are produced for each block.
-/// For multi-block sections, `TrackState::Freed` updates are produced only when all blocks in the section are cleared.
+/// For multi-block sections, `TrackState::Occupied` is produced when the first block is entered and
+/// `TrackState::Freed` only when all blocks in the section are cleared.
 #[derive(Message, Default, Debug)]
 pub struct TrackUpdate {
     pub block_id: BlockId,
@@ -55,6 +56,10 @@ pub struct TrackUpdate {
     /// Shared with the train, so per-move messages don't allocate.
     pub train_number: Arc<str>,
     pub section_ctx: Option<SectionContext>,
+    /// For an occupied multi-block section: the section's blocks currently linked to where the train
+    /// entered, ordered in the train's direction. A switch section lights only its set leg this way.
+    /// Empty otherwise, so it is read through [`TrackUpdate::lit_blocks`], which falls back to `blocks()`.
+    lit: Vec<BlockId>,
 }
 
 #[derive(Debug)]
@@ -73,12 +78,6 @@ impl From<&Section> for SectionContext {
     }
 }
 
-impl SectionContext {
-    pub fn block_index(&self, block_id: BlockId) -> Option<usize> {
-        self.blocks.iter().position(|&id| id == block_id)
-    }
-}
-
 impl TrackUpdate {
     fn from_train_move(train_move: &TrainMove, section: Option<&Section>) -> Self {
         TrackUpdate {
@@ -88,6 +87,7 @@ impl TrackUpdate {
             train_direction: train_move.direction,
             train_number: Arc::clone(&train_move.number),
             section_ctx: section.map(Into::into),
+            lit: Vec::new(),
         }
     }
 
@@ -106,6 +106,13 @@ impl TrackUpdate {
             Some(section_ctx) => &section_ctx.blocks,
             None => std::slice::from_ref(&self.block_id),
         }
+    }
+
+    /// Blocks to show as occupied: the part of an occupied section linked to where the train entered,
+    /// otherwise [`blocks`](Self::blocks). Ordered in the train's direction for a section, so the last one is
+    /// the far end ahead of the train.
+    pub fn lit_blocks(&self) -> &[BlockId] {
+        if self.lit.is_empty() { self.blocks() } else { &self.lit }
     }
 }
 
@@ -154,6 +161,10 @@ struct BlockTracker {
 impl BlockTracker {
     fn is_block_free(&self, block_id: BlockId) -> bool {
         self.blocks.get(&block_id).is_none_or(Vec::is_empty)
+    }
+
+    fn is_section_occupied(&self, section_id: SectionId) -> bool {
+        self.sections.get(&section_id).is_some_and(|&count| count > 0)
     }
 
     fn handle_update(&mut self, update: &TrackUpdate) -> bool {
@@ -267,27 +278,55 @@ impl BlockMap {
 
     fn process_switch_updates(&mut self, switch_updates: &mut MessageReader<SwitchUpdate>) {
         for update in switch_updates.read() {
-            let switch = &mut self.switches[update.switch_id];
-            switch.position = update.position;
-            let (base, straight, side, direction) = (switch.base, switch.straight, switch.side, switch.direction);
-            let (active_leg, inactive_leg) = if update.position == SwitchPosition::Straight {
-                (straight, side)
-            } else {
-                (side, straight)
-            };
-            match direction {
-                Direction::Even => {
-                    self.blocks[base].next = Some(active_leg);
-                    self.blocks[active_leg].prev = Some(base);
-                    self.blocks[inactive_leg].prev = None;
-                }
-                Direction::Odd => {
-                    self.blocks[base].prev = Some(active_leg);
-                    self.blocks[active_leg].next = Some(base);
-                    self.blocks[inactive_leg].next = None;
-                }
+            if !self.set_switch(update.switch_id, update.position) {
+                // Routes never throw a switch under a train; reaching this means something bypassed them.
+                warn!(
+                    "Switch {} is locked by an occupied section, not moving it to {:?}",
+                    update.switch_id, update.position
+                );
             }
         }
+    }
+
+    /// A switch is locked while the section holding its block (or the block itself, if it has no
+    /// section) is occupied: moving it would cut the track under a train.
+    fn is_switch_locked(&self, switch: &Switch) -> bool {
+        match self.sectioned_blocks.get(&switch.base) {
+            Some(section_id) => self.tracker.is_section_occupied(*section_id),
+            None => !self.tracker.is_block_free(switch.base),
+        }
+    }
+
+    /// Moves a switch and relinks the track around it. Returns `false` (and changes nothing) when the
+    /// switch is locked by an occupied section; setting it to its current position always succeeds.
+    fn set_switch(&mut self, switch_id: SwitchId, position: SwitchPosition) -> bool {
+        let switch = &self.switches[switch_id];
+        if switch.position != position && self.is_switch_locked(switch) {
+            return false;
+        }
+        let switch = &mut self.switches[switch_id];
+        switch.position = position;
+        link_switch(&mut self.blocks, switch);
+        true
+    }
+
+    /// The blocks of `section` currently linked to `entered`, ordered in `direction`.
+    fn lit_blocks(&self, section: &Section, entered: BlockId, direction: Direction) -> Vec<BlockId> {
+        let along = |direction: Direction| {
+            std::iter::successors(Some(entered), move |&block| {
+                self.next_block(block, direction).map(|next| next.id)
+            })
+            .skip(1)
+            .take_while(|block| section.blocks.contains(block))
+            .take(section.blocks.len())
+        };
+        // The lit blocks are a subset of the section, so this is the only allocation.
+        let mut lit = Vec::with_capacity(section.blocks.len());
+        lit.extend(along(direction.reverse()));
+        lit.reverse();
+        lit.push(entered);
+        lit.extend(along(direction));
+        lit
     }
 
     fn process_train_moves(
@@ -297,9 +336,17 @@ impl BlockMap {
     ) {
         for mv in train_moves.read() {
             let section = self.section_by_block(mv.block_id);
-            let track_update = TrackUpdate::from_train_move(mv, section);
+            let mut track_update = TrackUpdate::from_train_move(mv, section);
             let changed = self.tracker.handle_update(&track_update);
             if changed {
+                if track_update.state == TrackState::Occupied
+                    && let Some(section) = self.section_by_block(mv.block_id)
+                    && section.blocks.len() > 1
+                {
+                    // if we occupied a block that's a part of a section, and that section consists of
+                    // more than one block, we need to lit up the entire linked path to the section ends
+                    track_update.lit = self.lit_blocks(section, mv.block_id, mv.direction);
+                }
                 track_updates.write(track_update);
             }
         }
@@ -485,6 +532,11 @@ impl BlockMap {
             .flat_map(|sd| sd.blocks.iter().copied().map(|block_id| (block_id, sd.id)))
             .collect();
 
+        // Link every switch to its initial leg now, so the track is whole before the first frame.
+        for switch in &switches {
+            link_switch(&mut blocks, switch);
+        }
+
         BlockMap {
             blocks,
             signals,
@@ -492,6 +544,27 @@ impl BlockMap {
             sections,
             sectioned_blocks,
             ..Default::default()
+        }
+    }
+}
+
+/// Links a switch's block to the leg it is set to and cuts the other leg off.
+fn link_switch(blocks: &mut SparseVec<Block>, switch: &Switch) {
+    let (active_leg, inactive_leg) = match switch.position {
+        SwitchPosition::Straight => (switch.straight, switch.side),
+        SwitchPosition::Side => (switch.side, switch.straight),
+    };
+    let base = switch.base;
+    match switch.direction {
+        Direction::Even => {
+            blocks[base].next = Some(active_leg);
+            blocks[active_leg].prev = Some(base);
+            blocks[inactive_leg].prev = None;
+        }
+        Direction::Odd => {
+            blocks[base].prev = Some(active_leg);
+            blocks[active_leg].next = Some(base);
+            blocks[inactive_leg].next = None;
         }
     }
 }
@@ -944,5 +1017,94 @@ mod tests {
         assert_eq!(result[0].direction, Direction::Even);
         assert_eq!(result[1].position.block_id, 3);
         assert_eq!(result[1].direction, Direction::Odd);
+    }
+
+    const REFERENCE_LEVEL: &str = include_str!("../../tests/fixtures/reference_level.toml");
+
+    fn reference_map() -> BlockMap {
+        let level: Level = toml::from_str(REFERENCE_LEVEL).expect("reference level parses");
+        BlockMap::from_level(&level)
+    }
+
+    fn lit(map: &BlockMap, entered: BlockId, direction: Direction) -> Vec<BlockId> {
+        let section = map.section_by_block(entered).expect("block is in a section");
+        map.lit_blocks(section, entered, direction)
+    }
+
+    #[test]
+    fn switches_are_linked_at_load() {
+        let map = reference_map();
+        let next = map
+            .next_block(4, Direction::Even)
+            .expect("switch block linked to its leg");
+        assert_eq!(next.id, 5, "initial position is straight");
+    }
+
+    #[test]
+    fn switch_section_lights_only_the_set_leg() {
+        let mut map = reference_map();
+        assert_eq!(lit(&map, 4, Direction::Even), [4, 5], "facing move, straight");
+        assert!(map.set_switch(1, SwitchPosition::Side), "free switch can be thrown");
+        assert_eq!(lit(&map, 4, Direction::Even), [4, 20, 21], "facing move, side");
+        assert_eq!(
+            lit(&map, 21, Direction::Odd),
+            [21, 20, 4],
+            "trailing move, ordered ahead of the train"
+        );
+        assert_eq!(lit(&map, 20, Direction::Even), [4, 20, 21], "spawned mid-section");
+    }
+
+    #[test]
+    fn occupied_switch_section_locks_the_switch() {
+        let mut map = reference_map();
+        let section = map.section_by_block(5).expect("leg is in the switch section");
+        let update = TrackUpdate {
+            block_id: 5,
+            train_id: 1,
+            state: TrackState::Occupied,
+            section_ctx: Some(section.into()),
+            ..Default::default()
+        };
+        map.tracker.handle_update(&update);
+
+        assert!(!map.set_switch(1, SwitchPosition::Side), "locked under a train");
+        assert_eq!(
+            map.next_block(4, Direction::Even).map(|b| b.id),
+            Some(5),
+            "still straight"
+        );
+        assert!(
+            map.set_switch(1, SwitchPosition::Straight),
+            "re-setting the current position is fine"
+        );
+    }
+
+    #[test]
+    fn block_between_two_switches_lights_both_set_legs() {
+        // One block with a switch at each end: legs 1/2 on the odd side, legs 4/5 on the even side.
+        let level: Level = toml::from_str(
+            r##"
+            blocks = [[1, 100], [2, 100], [3, 10], [4, 100], [5, 100]]
+            connections = []
+            switches = [[1, 3, 4, 5, 1], [2, 3, 1, 2, -1]]
+            spawners = []
+            signals = []
+            sections = [[1, [1, 2, 3, 4, 5]]]
+            background = "#000000"
+            "##,
+        )
+        .expect("test level parses");
+        assert_eq!(level.validate(), Ok(()));
+        let mut map = BlockMap::from_level(&level);
+
+        assert_eq!(lit(&map, 3, Direction::Even), [1, 3, 4]);
+        assert!(map.set_switch(1, SwitchPosition::Side));
+        assert!(map.set_switch(2, SwitchPosition::Side));
+        assert_eq!(lit(&map, 3, Direction::Even), [2, 3, 5]);
+        assert_eq!(
+            lit(&map, 2, Direction::Even),
+            [2, 3, 5],
+            "entering from the odd-side leg"
+        );
     }
 }
